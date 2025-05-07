@@ -1,4 +1,5 @@
 """
+src/graficador/algorithms/bezier.py
 Módulo de algoritmos para curvas de Bézier.
 
 Este módulo implementa algoritmos para dibujar curvas de Bézier cúbicas en un contexto gráfico

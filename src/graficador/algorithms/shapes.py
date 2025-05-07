@@ -1,4 +1,5 @@
 """
+src/graficador/algorithms/shapes.py
 Módulo de algoritmos para dibujar formas geométricas básicas.
 
 Este módulo implementa algoritmos para dibujar formas como elipses

@@ -1,4 +1,5 @@
 """
+src/graficador/ui/button.py
 Módulo de la interfaz de usuario para botones.
 
 Define la clase `Button` que representa un botón interactivo simple

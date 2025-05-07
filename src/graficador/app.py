@@ -1,4 +1,5 @@
 """
+src/graficador/app.py
 Módulo principal de la aplicación Graficador Geométrico Interactivo.
 
 Este módulo contiene la clase `Application` que gestiona el ciclo de vida
@@ -10,6 +11,7 @@ necesarias para la creación interactiva de figuras.
 import pygame
 # import sys # Unused import
 import math
+import os # Nuevo import para manejo de variables de entorno
 from typing import List, Optional, Tuple, cast # Added Tuple and cast
 
 from . import config
@@ -20,6 +22,13 @@ from .algorithms.dda import dda_line
 from .algorithms.bresenham import bresenham_line, bresenham_circle
 from .algorithms.bezier import cubic_bezier
 from .algorithms.shapes import midpoint_ellipse
+
+# --- Importar Gemini AI si está disponible ---
+try:
+    import genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
 
 
 class Application:
@@ -50,6 +59,12 @@ class Application:
     def __init__(self) -> None:
         """Inicializa la aplicación, Pygame, la pantalla, el lienzo y los controles."""
         pygame.init()
+        # --- Fuentes ---
+        if not pygame.font.get_init():
+            pygame.font.init()
+        self.ui_font_small: pygame.font.Font = pygame.font.SysFont("Arial", 12)
+        self.ui_font_normal: pygame.font.Font = pygame.font.SysFont("Arial", 16)
+
         self.screen: pygame.Surface = pygame.display.set_mode(
             (config.SCREEN_WIDTH, config.SCREEN_HEIGHT)
         )
@@ -64,11 +79,12 @@ class Application:
             config.CANVAS_BG_COLOR
         )
 
-        # Crear el panel de controles
         self.controls: Controls = Controls(
             config.CONTROL_PANEL_X, config.CONTROL_PANEL_Y,
             config.CONTROL_PANEL_WIDTH, config.CONTROL_PANEL_HEIGHT,
-            config.CONTROL_PANEL_BG_COLOR
+            config.CONTROL_PANEL_BG_COLOR,
+            self.ui_font_normal,  # Pasar la fuente normal
+            self.ui_font_small   # Pasar la fuente pequeña
         )
 
         self.current_tool: str = "pixel" # Herramienta inicial por defecto
@@ -81,6 +97,15 @@ class Application:
         self.polygon_points: List[Point] = []
         self.ellipse_points: List[Point] = [] # Usaremos 2 puntos (centro y un punto en borde)
         self.draw_color: pygame.Color = config.BLACK # Color de dibujo por defecto
+
+        # --- Nuevos atributos para la funcionalidad de IA ---
+        self.gemini_client = None  # Se inicializará abajo
+        self.is_typing_prompt: bool = False
+        self.current_prompt_text: str = ""
+        self.generated_image_surface: Optional[pygame.Surface] = None
+        self.gemini_status_message: str = config.GEMINI_STATUS_DEFAULT
+
+        self._initialize_gemini()  # Llamar a un método dedicado
 
         print(f"Aplicación inicializada. Herramienta actual: {self.current_tool}")
 
@@ -211,9 +236,31 @@ class Application:
         else:
             print("Error: Radios de la elipse no pueden ser negativos.")
 
+    def _initialize_gemini(self) -> None:
+        """Inicializa el cliente de Gemini si las librerías y la API key están disponibles."""
+        if not GEMINI_AVAILABLE:
+            self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+            return
+
+        try:
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            if not api_key:
+                self.gemini_status_message = config.GEMINI_STATUS_ERROR_API_KEY
+                print(f"ADVERTENCIA: {self.gemini_status_message}")
+                return
+
+            self.gemini_client = genai.Client()
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+
+        except Exception as e:
+            self.gemini_status_message = f"Error inicializando cliente Gemini: {str(e)[:100]}"
+            print(f"ERROR: {self.gemini_status_message}")
+            self.gemini_client = None
+
+
     def _reset_all_states(self) -> None:
         """
-        Resetea todos los estados de dibujo pendientes.
+        Resetea todos los estados de dibujo pendientes y de IA.
 
         Pone a None o vacía las listas de puntos temporales utilizados por las
         diferentes herramientas de dibujo (línea, círculo, Bézier, etc.).
@@ -227,6 +274,12 @@ class Application:
         self.rectangle_points = []
         self.polygon_points = []
         self.ellipse_points = []
+
+        # Resetear estados de IA también
+        self.is_typing_prompt = False
+        self.current_prompt_text = ""
+        if self.gemini_client:
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
 
     def _handle_events(self) -> None:
         """

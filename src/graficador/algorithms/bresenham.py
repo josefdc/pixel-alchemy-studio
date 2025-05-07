@@ -1,4 +1,5 @@
 """
+src/graficador/algorithms/bresenham.py
 Módulo de algoritmos de Bresenham.
 
 Este módulo implementa los algoritmos clásicos de Bresenham para dibujar

@@ -1,4 +1,5 @@
 """
+/home/josefdc/projects/graficador_geometrico/src/graficador/ui/canvas.py
 Módulo de la interfaz de usuario para el lienzo de dibujo.
 
 Define la clase `Canvas`, que representa el área principal donde los usuarios

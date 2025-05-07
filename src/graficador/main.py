@@ -1,4 +1,5 @@
 """
+src/graficador/main.py
 Punto de entrada principal para la aplicación Graficador Geométrico.
 
 Este script inicializa y ejecuta la clase principal de la aplicación (`Application`).

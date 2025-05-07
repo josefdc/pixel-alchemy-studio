@@ -7,19 +7,24 @@ class Controls:
     """Representa el panel de control de la aplicación."""
 
 
-    def __init__(self, x: int, y: int, width: int, height: int, bg_color: pygame.Color):
+    def __init__(self, x: int, y: int, width: int, height: int, 
+                 bg_color: pygame.Color, 
+                 font_normal: pygame.font.Font,  # Nuevo
+                 font_small: pygame.font.Font):  # Nuevo
         self.rect = pygame.Rect(x, y, width, height)
         self.surface = pygame.Surface((width, height))
         self.bg_color = bg_color
+        
+        # --- Usar fuentes pasadas ---
+        self.font = font_normal
+        self.font_small = font_small
+
         self._draw_background()
         self.buttons: list[Button] = []
         self.color_buttons: list[Button] = []
-        if not pygame.font.get_init():
-            pygame.font.init()
-        self.font = pygame.font.SysFont("Arial", 16)
-        self.font_small = pygame.font.SysFont("Arial", 12)
+        
         self._create_tool_buttons()
-        self._create_color_buttons()
+        self._create_color_buttons()  # Asumo que color_buttons_start_y se define en _create_tool_buttons
         print(f"Panel de Control inicializado en {self.rect} con color {bg_color}")
 
     def _create_tool_buttons(self):
@@ -28,23 +33,34 @@ class Controls:
         button_x = 20
         current_y = 20
         spacing = 10
+        
         tool_list = [
-            ("pixel", "Píxel"), ("dda_line", "Línea DDA"),
-            ("bresenham_line", "Línea Bresenham"), ("bresenham_circle", "Círculo Bresenham"),
-            ("ellipse", "Elipse"), ("bezier_curve", "Curva Bézier"),
-            ("triangle", "Triángulo"), ("rectangle", "Rectángulo"),
-            ("polygon", "Polígono"), ("clear", "Limpiar (C)")
+            ("pixel", "Píxel (P)"), 
+            ("dda_line", "Línea DDA (L)"),
+            ("bresenham_line", "Línea Bresenham (B)"), 
+            ("bresenham_circle", "Círculo (O)"), 
+            ("ellipse", "Elipse (E)"), 
+            ("bezier_curve", "Curva Bézier (Z)"),
+            ("triangle", "Triángulo (T)"), 
+            ("rectangle", "Rectángulo (R)"),
+            ("polygon", "Polígono (Y)"), 
+            ("clear", "Limpiar (C)"),
+            ("gemini_generate", config.GEMINI_BUTTON_TEXT)  # Botón para IA
         ]
+        
         for identifier, text in tool_list:
             button = Button(
                 x=button_x, y=current_y,
                 width=button_width, height=button_height,
                 text=text, identifier=identifier,
-                font=self.font, base_color=pygame.Color("lightblue"), hover_color=pygame.Color("dodgerblue")
+                font=self.font,  # Usar la fuente normal para botones de herramienta
+                base_color=pygame.Color("lightblue"), 
+                hover_color=pygame.Color("dodgerblue")
             )
             self.buttons.append(button)
             current_y += button_height + spacing
-        self.color_buttons_start_y = current_y + spacing
+        
+        self.color_buttons_start_y = current_y + spacing  # Definir para _create_color_buttons
 
     def _create_color_buttons(self):
         button_size = 25

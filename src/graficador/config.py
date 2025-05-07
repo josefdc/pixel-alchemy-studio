@@ -1,4 +1,5 @@
 """
+src/graficador/config.py
 Módulo de configuración para la aplicación Graficador Geométrico.
 
 Define constantes utilizadas en toda la aplicación, como dimensiones de la pantalla,
@@ -62,3 +63,20 @@ AVAILABLE_COLORS: Dict[str, pygame.Color] = {
     "Blanco": WHITE,
     # Se pueden añadir más colores aquí si se desea ampliar la paleta.
 }
+
+# --- Configuración de Gemini ---
+GEMINI_MODEL_NAME: str = "gemini-2.0-flash-exp"  # Modelo para generación de imagen nativa
+# Textos para la UI relacionados con IA
+GEMINI_BUTTON_TEXT: str = "Generar con IA (G)"
+PROMPT_INPUT_PLACEHOLDER: str = "Escribe tu idea aquí y presiona Enter..."
+PROMPT_ACTIVE_PREFIX: str = "Prompt IA: "
+GEMINI_STATUS_DEFAULT: str = "IA lista. Dibuja algo y presiona 'G'."
+GEMINI_STATUS_LOADING: str = "IA pensando..."
+GEMINI_STATUS_ERROR_API_KEY: str = "Error: API Key de Gemini no configurada."
+GEMINI_STATUS_ERROR_LIB: str = "Error: Librerías de IA no encontradas."
+GEMINI_STATUS_ERROR_GENERAL: str = "Error de IA. Intenta de nuevo."
+
+# Colores adicionales para la UI de IA
+PROMPT_INPUT_BG_COLOR: pygame.Color = pygame.Color("whitesmoke")
+PROMPT_INPUT_TEXT_COLOR: pygame.Color = BLACK
+STATUS_MESSAGE_COLOR: pygame.Color = pygame.Color(50, 50, 50)  # Gris oscuro para texto de estado

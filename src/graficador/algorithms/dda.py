@@ -1,4 +1,5 @@
 """
+src/graficador/algorithms/dda.py
 Módulo del algoritmo DDA (Digital Differential Analyzer).
 
 Este módulo implementa el algoritmo DDA para dibujar líneas rectas en una
