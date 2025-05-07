@@ -13,6 +13,8 @@ import pygame
 import math
 import os # Nuevo import para manejo de variables de entorno
 from typing import List, Optional, Tuple, cast # Added Tuple and cast
+import io  # Import for handling in-memory image buffers
+import traceback
 
 from . import config
 from .ui.canvas import Canvas
@@ -23,13 +25,19 @@ from .algorithms.bresenham import bresenham_line, bresenham_circle
 from .algorithms.bezier import cubic_bezier
 from .algorithms.shapes import midpoint_ellipse
 
-# --- Importar Gemini AI si está disponible ---
+# --- Importaciones para Gemini (con manejo de errores) ---
 try:
-    import genai
+    import google.generativeai as genai  # CORRECCIÓN AQUÍ
+    from google.generativeai import types as genai_types  # Necesario para GenerateContentConfig
+    from PIL import Image as PILImage  # Necesario para manejar los datos de imagen
     GEMINI_AVAILABLE = True
 except ImportError:
+    # Establecer placeholders si las librerías no están
+    genai = None
+    genai_types = None
+    PILImage = None
     GEMINI_AVAILABLE = False
-
+    # El mensaje de advertencia ya lo tienes en __init__ a través de _initialize_gemini
 
 class Application:
     """
@@ -99,15 +107,19 @@ class Application:
         self.draw_color: pygame.Color = config.BLACK # Color de dibujo por defecto
 
         # --- Nuevos atributos para la funcionalidad de IA ---
-        self.gemini_client = None  # Se inicializará abajo
+        self.gemini_model_instance = None  # Para la instancia del GenerativeModel
         self.is_typing_prompt: bool = False
         self.current_prompt_text: str = ""
         self.generated_image_surface: Optional[pygame.Surface] = None
         self.gemini_status_message: str = config.GEMINI_STATUS_DEFAULT
 
-        self._initialize_gemini()  # Llamar a un método dedicado
+        self._initialize_gemini()
 
         print(f"Aplicación inicializada. Herramienta actual: {self.current_tool}")
+        if GEMINI_AVAILABLE and self.gemini_model_instance:
+            print(f"Modelo Gemini listo para usar: {config.GEMINI_MODEL_NAME}")
+        else:
+            print(f"Estado de Gemini al finalizar __init__: {self.gemini_status_message}")
 
 
     def _draw_dda_line(self, p1: Point, p2: Point, color: pygame.Color) -> None:
@@ -249,24 +261,23 @@ class Application:
                 print(f"ADVERTENCIA: {self.gemini_status_message}")
                 return
 
-            self.gemini_client = genai.Client()
+            # Configurar la API Key globalmente para el módulo genai
+            genai.configure(api_key=api_key)
+            
+            # Instanciar el modelo específico que queremos usar
+            self.gemini_model_instance = genai.GenerativeModel(config.GEMINI_MODEL_NAME)
+            
             self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+            print(f"Configuración de Gemini y modelo '{config.GEMINI_MODEL_NAME}' listos.")
 
         except Exception as e:
-            self.gemini_status_message = f"Error inicializando cliente Gemini: {str(e)[:100]}"
-            print(f"ERROR: {self.gemini_status_message}")
-            self.gemini_client = None
+            self.gemini_status_message = f"Error inicializando Gemini: {str(e)[:150]}"
+            print(f"ERROR GENERAL: {self.gemini_status_message}")
+            self.gemini_model_instance = None
 
-
-    def _reset_all_states(self) -> None:
-        """
-        Resetea todos los estados de dibujo pendientes y de IA.
-
-        Pone a None o vacía las listas de puntos temporales utilizados por las
-        diferentes herramientas de dibujo (línea, círculo, Bézier, etc.).
-        Se llama al cambiar de herramienta, limpiar el lienzo o cancelar una acción.
-        """
-        print("Reseteando estados de dibujo pendientes...")
+    def _reset_drawing_states(self) -> None:
+        """Resetea solo los estados de dibujo pendientes (puntos, etc.)."""
+        print("Reseteando solo estados de dibujo pendientes...")
         self.line_start_point = None
         self.circle_center = None
         self.bezier_points = []
@@ -274,28 +285,426 @@ class Application:
         self.rectangle_points = []
         self.polygon_points = []
         self.ellipse_points = []
+        # NO resetea is_typing_prompt, current_prompt_text ni gemini_status_message
 
-        # Resetear estados de IA también
+    def _reset_all_states(self) -> None:
+        """Resetea todos los estados de dibujo Y de IA."""
+        self._reset_drawing_states()  # Llama al nuevo método para los puntos
         self.is_typing_prompt = False
         self.current_prompt_text = ""
-        if self.gemini_client:
+        if self.gemini_model_instance:  # Restaurar mensaje solo si la IA está OK
             self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+        print(f"Estados COMPLETOS reseteados. Estado actual de Gemini: {self.gemini_status_message}")
+
+    def _draw_dda_line(self, p1: Point, p2: Point, color: pygame.Color) -> None:
+        """
+        Dibuja una línea utilizando el algoritmo DDA.
+
+        Args:
+            p1 (Point): Punto de inicio de la línea (coordenadas relativas al lienzo).
+            p2 (Point): Punto final de la línea (coordenadas relativas al lienzo).
+            color (pygame.Color): Color de la línea.
+        """
+        dda_line(p1, p2, self.canvas.draw_pixel, color)
+
+    def _draw_bresenham_line(self, p1: Point, p2: Point, color: pygame.Color) -> None:
+        """
+        Dibuja una línea utilizando el algoritmo de Bresenham.
+
+        Args:
+            p1 (Point): Punto de inicio de la línea (coordenadas relativas al lienzo).
+            p2 (Point): Punto final de la línea (coordenadas relativas al lienzo).
+            color (pygame.Color): Color de la línea.
+        """
+        bresenham_line(p1, p2, self.canvas.draw_pixel, color)
+
+    def _draw_bresenham_circle(self, center: Point, radius: int) -> None:
+        """
+        Dibuja un círculo utilizando el algoritmo de Bresenham para círculos.
+
+        Args:
+            center (Point): Centro del círculo (coordenadas relativas al lienzo).
+            radius (int): Radio del círculo en píxeles.
+        """
+        if radius >= 0:
+            bresenham_circle(center, radius, self.canvas.draw_pixel, self.draw_color)
+        else:
+            print("Error: Radio del círculo no puede ser negativo.")
+
+
+    def _draw_bezier_curve(self, points: List[Point]) -> None:
+        """
+        Dibuja una curva Bézier cúbica utilizando el algoritmo correspondiente.
+
+        La curva se dibuja segmentando la curva y dibujando líneas rectas
+        (usando Bresenham) entre los puntos calculados.
+
+        Args:
+            points (List[Point]): Lista de 4 puntos de control (P0, P1, P2, P3)
+                                  en coordenadas relativas al lienzo.
+        """
+        if len(points) == 4:
+            # Usamos bresenham como función para dibujar los segmentos
+            cubic_bezier(points[0], points[1], points[2], points[3],
+                         self._draw_bresenham_line, # Pasar el método helper
+                         self.draw_color)
+        # else: # No es necesario dibujar puntos de control aquí, se hace en _render
+        #     pass
+
+    def _draw_triangle(self, points: List[Point]) -> None:
+        """
+        Dibuja un triángulo conectando los 3 vértices dados con líneas (Bresenham).
+
+        Args:
+            points (List[Point]): Lista de 3 puntos (vértices) del triángulo
+                                  en coordenadas relativas al lienzo.
+        """
+        if len(points) == 3:
+            print(f"Dibujando Triángulo: {points[0]}, {points[1]}, {points[2]}")
+            self._draw_bresenham_line(points[0], points[1], self.draw_color)
+            self._draw_bresenham_line(points[1], points[2], self.draw_color)
+            self._draw_bresenham_line(points[2], points[0], self.draw_color) # Cerrar
+
+    def _draw_rectangle(self, p_start: Point, p_end: Point) -> None:
+        """
+        Dibuja un rectángulo definido por dos esquinas opuestas usando líneas (Bresenham).
+
+        Args:
+            p_start (Point): Primera esquina del rectángulo (relativa al lienzo).
+            p_end (Point): Esquina opuesta del rectángulo (relativa al lienzo).
+        """
+        x0, y0 = p_start.x, p_start.y
+        x1, y1 = p_end.x, p_end.y
+        # Crear los otros dos puntos
+        p1 = Point(x1, y0)
+        p3 = Point(x0, y1)
+        print(f"Dibujando Rectángulo: P0={p_start}, P1={p1}, P2={p_end}, P3={p3}")
+        # Dibujar los 4 lados usando Bresenham
+        self._draw_bresenham_line(p_start, p1, self.draw_color)
+        self._draw_bresenham_line(p1, p_end, self.draw_color)
+        self._draw_bresenham_line(p_end, p3, self.draw_color)
+        self._draw_bresenham_line(p3, p_start, self.draw_color) # Cerrar el rectángulo
+
+
+    def _draw_polygon(self, points: List[Point]) -> None:
+        """
+        Dibuja los segmentos de un polígono conectando los vértices dados con líneas (Bresenham).
+
+        Nota: Esta función dibuja los segmentos a medida que se añaden puntos.
+        El cierre del polígono (último vértice al primero) se maneja en `_handle_events`.
+
+        Args:
+            points (List[Point]): Lista de vértices del polígono hasta el momento
+                                  (coordenadas relativas al lienzo).
+        """
+        if len(points) < 2: # Necesitamos al menos 2 para empezar a dibujar lados
+            return
+        # Dibujar el último segmento añadido (entre el penúltimo y el último punto)
+        # El bucle anterior en la versión original era redundante aquí,
+        # ya que los segmentos anteriores ya se dibujaron en llamadas previas.
+        start_point = points[-2]
+        end_point = points[-1]
+        print(f"  Dibujando lado Polígono: {start_point} -> {end_point}")
+        self._draw_bresenham_line(start_point, end_point, self.draw_color)
+
+
+    def _draw_ellipse(self, center: Point, rx: int, ry: int) -> None:
+        """
+        Dibuja una elipse utilizando el algoritmo del punto medio.
+
+        Args:
+            center (Point): Centro de la elipse (coordenadas relativas al lienzo).
+            rx (int): Radio horizontal (semieje mayor o menor) en píxeles.
+            ry (int): Radio vertical (semieje mayor o menor) en píxeles.
+        """
+        if rx >= 0 and ry >= 0:
+            midpoint_ellipse(center, rx, ry, self.canvas.draw_pixel, self.draw_color)
+        else:
+            print("Error: Radios de la elipse no pueden ser negativos.")
+
+    def _initialize_gemini(self) -> None:
+        """Inicializa el cliente de Gemini si las librerías y la API key están disponibles."""
+        if not GEMINI_AVAILABLE:
+            self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+            return
+
+        try:
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            if not api_key:
+                self.gemini_status_message = config.GEMINI_STATUS_ERROR_API_KEY
+                print(f"ADVERTENCIA: {self.gemini_status_message}")
+                return
+
+            # Configurar la API Key globalmente para el módulo genai
+            genai.configure(api_key=api_key)
+            
+            # Instanciar el modelo específico que queremos usar
+            self.gemini_model_instance = genai.GenerativeModel(config.GEMINI_MODEL_NAME)
+            
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+            print(f"Configuración de Gemini y modelo '{config.GEMINI_MODEL_NAME}' listos.")
+
+        except Exception as e:
+            self.gemini_status_message = f"Error inicializando Gemini: {str(e)[:150]}"
+            print(f"ERROR GENERAL: {self.gemini_status_message}")
+            self.gemini_model_instance = None
+
+    def _reset_drawing_states(self) -> None:
+        """Resetea solo los estados de dibujo pendientes (puntos, etc.)."""
+        print("Reseteando solo estados de dibujo pendientes...")
+        self.line_start_point = None
+        self.circle_center = None
+        self.bezier_points = []
+        self.triangle_points = []
+        self.rectangle_points = []
+        self.polygon_points = []
+        self.ellipse_points = []
+        # NO resetea is_typing_prompt, current_prompt_text ni gemini_status_message
+
+    def _reset_all_states(self) -> None:
+        """Resetea todos los estados de dibujo Y de IA."""
+        self._reset_drawing_states()  # Llama al nuevo método para los puntos
+        self.is_typing_prompt = False
+        self.current_prompt_text = ""
+        if self.gemini_model_instance:  # Restaurar mensaje solo si la IA está OK
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+        print(f"Estados COMPLETOS reseteados. Estado actual de Gemini: {self.gemini_status_message}")
+
+    def _capture_canvas_as_pil_image(self) -> Optional[PILImage.Image]:
+        """
+        Captura la superficie actual del lienzo y la convierte en un objeto PIL.Image.
+
+        Returns:
+            Optional[PILImage.Image]: La imagen PIL del lienzo, o None si ocurre un error.
+        """
+        if not PILImage:  # Comprobar si Pillow está disponible
+            self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+            print(f"Error: {self.gemini_status_message}")
+            return None
+        try:
+            canvas_surface = self.canvas.surface
+            image_bytes_io = io.BytesIO()
+            pygame.image.save(canvas_surface, image_bytes_io, "PNG")
+            image_bytes_io.seek(0)
+            pil_image = PILImage.open(image_bytes_io)
+            print("Lienzo capturado como imagen PIL.")
+            return pil_image
+        except Exception as e:
+            self.gemini_status_message = f"Error capturando canvas: {str(e)[:100]}"
+            print(f"Error: {self.gemini_status_message}")
+            return None
+
+    def _draw_dda_line(self, p1: Point, p2: Point, color: pygame.Color) -> None:
+        """
+        Dibuja una línea utilizando el algoritmo DDA.
+
+        Args:
+            p1 (Point): Punto de inicio de la línea (coordenadas relativas al lienzo).
+            p2 (Point): Punto final de la línea (coordenadas relativas al lienzo).
+            color (pygame.Color): Color de la línea.
+        """
+        dda_line(p1, p2, self.canvas.draw_pixel, color)
+
+    def _draw_bresenham_line(self, p1: Point, p2: Point, color: pygame.Color) -> None:
+        """
+        Dibuja una línea utilizando el algoritmo de Bresenham.
+
+        Args:
+            p1 (Point): Punto de inicio de la línea (coordenadas relativas al lienzo).
+            p2 (Point): Punto final de la línea (coordenadas relativas al lienzo).
+            color (pygame.Color): Color de la línea.
+        """
+        bresenham_line(p1, p2, self.canvas.draw_pixel, color)
+
+    def _draw_bresenham_circle(self, center: Point, radius: int) -> None:
+        """
+        Dibuja un círculo utilizando el algoritmo de Bresenham para círculos.
+
+        Args:
+            center (Point): Centro del círculo (coordenadas relativas al lienzo).
+            radius (int): Radio del círculo en píxeles.
+        """
+        if radius >= 0:
+            bresenham_circle(center, radius, self.canvas.draw_pixel, self.draw_color)
+        else:
+            print("Error: Radio del círculo no puede ser negativo.")
+
+
+    def _draw_bezier_curve(self, points: List[Point]) -> None:
+        """
+        Dibuja una curva Bézier cúbica utilizando el algoritmo correspondiente.
+
+        La curva se dibuja segmentando la curva y dibujando líneas rectas
+        (usando Bresenham) entre los puntos calculados.
+
+        Args:
+            points (List[Point]): Lista de 4 puntos de control (P0, P1, P2, P3)
+                                  en coordenadas relativas al lienzo.
+        """
+        if len(points) == 4:
+            # Usamos bresenham como función para dibujar los segmentos
+            cubic_bezier(points[0], points[1], points[2], points[3],
+                         self._draw_bresenham_line, # Pasar el método helper
+                         self.draw_color)
+        # else: # No es necesario dibujar puntos de control aquí, se hace en _render
+        #     pass
+
+    def _draw_triangle(self, points: List[Point]) -> None:
+        """
+        Dibuja un triángulo conectando los 3 vértices dados con líneas (Bresenham).
+
+        Args:
+            points (List[Point): Lista de 3 puntos (vértices) del triángulo
+                                  en coordenadas relativas al lienzo.
+        """
+        if len(points) == 3:
+            print(f"Dibujando Triángulo: {points[0]}, {points[1]}, {points[2]}")
+            self._draw_bresenham_line(points[0], points[1], self.draw_color)
+            self._draw_bresenham_line(points[1], points[2], self.draw_color)
+            self._draw_bresenham_line(points[2], points[0], self.draw_color) # Cerrar
+
+    def _draw_rectangle(self, p_start: Point, p_end: Point) -> None:
+        """
+        Dibuja un rectángulo definido por dos esquinas opuestas usando líneas (Bresenham).
+
+        Args:
+            p_start (Point): Primera esquina del rectángulo (relativa al lienzo).
+            p_end (Point): Esquina opuesta del rectángulo (relativa al lienzo).
+        """
+        x0, y0 = p_start.x, p_start.y
+        x1, y1 = p_end.x, p_end.y
+        # Crear los otros dos puntos
+        p1 = Point(x1, y0)
+        p3 = Point(x0, y1)
+        print(f"Dibujando Rectángulo: P0={p_start}, P1={p1}, P2={p_end}, P3={p3}")
+        # Dibujar los 4 lados usando Bresenham
+        self._draw_bresenham_line(p_start, p1, self.draw_color)
+        self._draw_bresenham_line(p1, p_end, self.draw_color)
+        self._draw_bresenham_line(p_end, p3, self.draw_color)
+        self._draw_bresenham_line(p3, p_start, self.draw_color) # Cerrar el rectángulo
+
+
+    def _draw_polygon(self, points: List[Point]) -> None:
+        """
+        Dibuja los segmentos de un polígono conectando los vértices dados con líneas (Bresenham).
+
+        Nota: Esta función dibuja los segmentos a medida que se añaden puntos.
+        El cierre del polígono (último vértice al primero) se maneja en `_handle_events`.
+
+        Args:
+            points (List[Point]): Lista de vértices del polígono hasta el momento
+                                  (coordenadas relativas al lienzo).
+        """
+        if len(points) < 2: # Necesitamos al menos 2 para empezar a dibujar lados
+            return
+        # Dibujar el último segmento añadido (entre el penúltimo y el último punto)
+        # El bucle anterior en la versión original era redundante aquí,
+        # ya que los segmentos anteriores ya se dibujaron en llamadas previas.
+        start_point = points[-2]
+        end_point = points[-1]
+        print(f"  Dibujando lado Polígono: {start_point} -> {end_point}")
+        self._draw_bresenham_line(start_point, end_point, self.draw_color)
+
+
+    def _draw_ellipse(self, center: Point, rx: int, ry: int) -> None:
+        """
+        Dibuja una elipse utilizando el algoritmo del punto medio.
+
+        Args:
+            center (Point): Centro de la elipse (coordenadas relativas al lienzo).
+            rx (int): Radio horizontal (semieje mayor o menor) en píxeles.
+            ry (int): Radio vertical (semieje mayor o menor) en píxeles.
+        """
+        if rx >= 0 and ry >= 0:
+            midpoint_ellipse(center, rx, ry, self.canvas.draw_pixel, self.draw_color)
+        else:
+            print("Error: Radios de la elipse no pueden ser negativos.")
+
+    def _initialize_gemini(self) -> None:
+        """Inicializa el cliente de Gemini si las librerías y la API key están disponibles."""
+        if not GEMINI_AVAILABLE:
+            self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+            return
+
+        try:
+            api_key = os.environ.get("GOOGLE_API_KEY")
+            if not api_key:
+                self.gemini_status_message = config.GEMINI_STATUS_ERROR_API_KEY
+                print(f"ADVERTENCIA: {self.gemini_status_message}")
+                return
+
+            # Configurar la API Key globalmente para el módulo genai
+            genai.configure(api_key=api_key)
+            
+            # Instanciar el modelo específico que queremos usar
+            self.gemini_model_instance = genai.GenerativeModel(config.GEMINI_MODEL_NAME)
+            
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+            print(f"Configuración de Gemini y modelo '{config.GEMINI_MODEL_NAME}' listos.")
+
+        except Exception as e:
+            self.gemini_status_message = f"Error inicializando Gemini: {str(e)[:150]}"
+            print(f"ERROR GENERAL: {self.gemini_status_message}")
+            self.gemini_model_instance = None
+
+    def _reset_drawing_states(self) -> None:
+        """Resetea solo los estados de dibujo pendientes (puntos, etc.)."""
+        print("Reseteando solo estados de dibujo pendientes...")
+        self.line_start_point = None
+        self.circle_center = None
+        self.bezier_points = []
+        self.triangle_points = []
+        self.rectangle_points = []
+        self.polygon_points = []
+        self.ellipse_points = []
+        # NO resetea is_typing_prompt, current_prompt_text ni gemini_status_message
+
+    def _reset_all_states(self) -> None:
+        """Resetea todos los estados de dibujo Y de IA."""
+        self._reset_drawing_states()  # Llama al nuevo método para los puntos
+        self.is_typing_prompt = False
+        self.current_prompt_text = ""
+        if self.gemini_model_instance:  # Restaurar mensaje solo si la IA está OK
+            self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+        print(f"Estados COMPLETOS reseteados. Estado actual de Gemini: {self.gemini_status_message}")
+
+    def _capture_canvas_as_pil_image(self) -> Optional[PILImage.Image]:
+        """
+        Captura la superficie actual del lienzo y la convierte en un objeto PIL.Image.
+
+        Returns:
+            Optional[PILImage.Image]: La imagen PIL del lienzo, o None si ocurre un error.
+        """
+        if not PILImage:  # Comprobar si Pillow está disponible
+            self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+            print(f"Error: {self.gemini_status_message}")
+            return None
+        try:
+            canvas_surface = self.canvas.surface
+            image_bytes_io = io.BytesIO()
+            pygame.image.save(canvas_surface, image_bytes_io, "PNG")
+            image_bytes_io.seek(0)
+            pil_image = PILImage.open(image_bytes_io)
+            print("Lienzo capturado como imagen PIL.")
+            return pil_image
+        except Exception as e:
+            self.gemini_status_message = f"Error capturando canvas: {str(e)[:100]}"
+            print(f"Error: {self.gemini_status_message}")
+            return None
 
     def _handle_events(self) -> None:
         """
         Maneja los eventos de entrada del usuario (teclado, ratón).
 
         Procesa eventos como clics del ratón sobre el lienzo o los controles,
-        y pulsaciones de teclas (ESC para cancelar, 'c' para limpiar).
+        y pulsaciones de teclas (ESC para cancelar, 'c' para limpiar, 'g' para generar).
         Actualiza el estado de la aplicación según la interacción del usuario
         y la herramienta seleccionada.
         """
         # Obtener posición relativa del ratón respecto al panel de controles
-        # Necesario para detectar hover y clics en botones.
         mouse_pos_on_controls: Optional[Tuple[int, int]] = None
-        abs_mouse_pos: Tuple[int, int] = pygame.mouse.get_pos() # Posición absoluta actual
+        abs_mouse_pos: Tuple[int, int] = pygame.mouse.get_pos()
         if self.controls.rect.collidepoint(abs_mouse_pos):
-            # Calcular posición relativa al panel de control
             mouse_pos_on_controls = (abs_mouse_pos[0] - self.controls.rect.x,
                                      abs_mouse_pos[1] - self.controls.rect.y)
 
@@ -306,149 +715,187 @@ class Application:
             if event.type == pygame.QUIT:
                 self.is_running = False
 
+            # --- Manejo de entrada de texto para el prompt ---
+            # Procesar esto ANTES de otros eventos KEYDOWN si estamos escribiendo
+            if self.is_typing_prompt and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:  # Tecla Enter: finalizar prompt y llamar a IA
+                    self.is_typing_prompt = False
+                    prompt_final = self.current_prompt_text.strip()
+                    if not prompt_final:
+                        self.gemini_status_message = "Prompt vacío. Intenta de nuevo."
+                        print("Intento de generación con prompt vacío.")
+                    elif not self.gemini_model_instance:
+                         self.gemini_status_message = "Error: IA no inicializada."
+                         print("Intento de generación sin modelo de IA.")
+                    else:
+                        print(f"Prompt finalizado: '{prompt_final}'. Iniciando generación...")
+                        self.gemini_status_message = config.GEMINI_STATUS_LOADING
+                        # Limpiar imagen anterior antes de generar una nueva
+                        self.generated_image_surface = None 
+                        
+                        pil_image = self._capture_canvas_as_pil_image()
+                        if pil_image:
+                            # --- LLAMADA A LA API REAL ---
+                            self._call_gemini_api(pil_image, prompt_final) 
+                        else:
+                            # El mensaje de error ya se estableció en _capture_canvas_as_pil_image
+                            pass # Mantener el mensaje de error de captura
+
+                elif event.key == pygame.K_BACKSPACE: # Tecla Borrar
+                    self.current_prompt_text = self.current_prompt_text[:-1]
+                elif event.key == pygame.K_ESCAPE: # Tecla Escape: cancelar prompt
+                    print("Entrada de prompt cancelada.")
+                    self._reset_all_states() # Resetear TODO al cancelar prompt
+                else: # Otras teclas: añadir caracter al prompt
+                    if len(self.current_prompt_text) < 200: # Limitar longitud
+                        self.current_prompt_text += event.unicode
+                
+                # Si procesamos una tecla mientras escribíamos prompt, no hacemos nada más con ella
+                continue # Salta al siguiente evento del bucle
+
+            # --- Otros eventos (clics, teclas normales cuando NO se escribe prompt) ---
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: # Clic izquierdo
-                    # Usamos abs_mouse_pos que obtuvimos antes del bucle
-
                     # Verificar clic en el lienzo
                     if self.canvas.rect.collidepoint(abs_mouse_pos):
-                        # Calcular posición relativa al lienzo
-                        relative_x = abs_mouse_pos[0] - self.canvas.rect.x
-                        relative_y = abs_mouse_pos[1] - self.canvas.rect.y
-                        current_point = Point(relative_x, relative_y)
-                        print(f"Clic en Lienzo en ({relative_x}, {relative_y}). Herramienta: {self.current_tool}")
-
-                        # --- Lógica según herramienta ---
-                        if self.current_tool == "pixel":
-                            self.canvas.draw_pixel(current_point.x, current_point.y, self.draw_color)
-
-                        elif self.current_tool in ["dda_line", "bresenham_line"]:
-                            if not self.line_start_point:
-                                self.line_start_point = current_point
-                                print(f"  Inicio línea en {current_point}")
-                            else:
-                                print(f"  Fin línea en {current_point}")
-                                if self.current_tool == "dda_line":
-                                    self._draw_dda_line(self.line_start_point, current_point, self.draw_color)
-                                else: # bresenham_line
-                                    self._draw_bresenham_line(self.line_start_point, current_point, self.draw_color)
-                                self.line_start_point = None # Resetear para la próxima línea
-
-                        elif self.current_tool == "bresenham_circle":
-                            if not self.circle_center:
-                                self.circle_center = current_point
-                                print(f"  Centro círculo en {current_point}")
-                            else:
-                                # Calcular radio como distancia euclidiana
-                                dx = current_point.x - self.circle_center.x
-                                dy = current_point.y - self.circle_center.y
-                                radius = int(math.sqrt(dx*dx + dy*dy))
-                                print(f"  Punto borde en {current_point}, Radio calculado: {radius}")
-                                self._draw_bresenham_circle(self.circle_center, radius)
-                                self.circle_center = None # Resetear
-
-                        elif self.current_tool == "ellipse":
-                             if len(self.ellipse_points) == 0:
-                                 self.ellipse_points.append(current_point) # Centro
-                                 print(f"  Centro elipse en {current_point}")
-                             elif len(self.ellipse_points) == 1:
-                                 # Segundo punto define los radios
-                                 center = self.ellipse_points[0]
-                                 rx = abs(current_point.x - center.x)
-                                 ry = abs(current_point.y - center.y)
-                                 print(f"  Punto borde en {current_point}, Rx={rx}, Ry={ry}")
-                                 self._draw_ellipse(center, rx, ry)
-                                 self.ellipse_points = [] # Resetear
-
-                        elif self.current_tool == "bezier_curve":
-                            self.bezier_points.append(current_point)
-                            print(f"  Añadido punto Bézier {len(self.bezier_points)}/4: {current_point}")
-                            # Dibujar punto actual para feedback (se hace en _render)
-                            # self.canvas.draw_pixel(current_point.x, current_point.y, config.RED)
-                            if len(self.bezier_points) == 4:
-                                print("  Dibujando curva Bézier...")
-                                self._draw_bezier_curve(self.bezier_points)
-                                self.bezier_points = [] # Resetear
-
-                        elif self.current_tool == "triangle":
-                            self.triangle_points.append(current_point)
-                            print(f"  Añadido punto Triángulo {len(self.triangle_points)}/3: {current_point}")
-                            # self.canvas.draw_pixel(current_point.x, current_point.y, config.GREEN) # Feedback en _render
-                            if len(self.triangle_points) == 3:
-                                print("  Dibujando triángulo...")
-                                self._draw_triangle(self.triangle_points)
-                                self.triangle_points = [] # Resetear
-
-                        elif self.current_tool == "rectangle":
-                            self.rectangle_points.append(current_point)
-                            print(f"  Añadido punto Rectángulo {len(self.rectangle_points)}/2: {current_point}")
-                            # self.canvas.draw_pixel(current_point.x, current_point.y, config.BLUE) # Feedback en _render
-                            if len(self.rectangle_points) == 2:
-                                print("  Dibujando rectángulo...")
-                                self._draw_rectangle(self.rectangle_points[0], self.rectangle_points[1])
-                                self.rectangle_points = [] # Resetear
-
-                        elif self.current_tool == "polygon":
-                            # Comprobar si se hace clic cerca del primer punto para cerrar
-                            should_close = False
-                            # Necesitamos al menos 2 puntos existentes para poder cerrar al hacer el tercer clic (o posterior)
-                            if len(self.polygon_points) >= 2:
-                                first_point = self.polygon_points[0]
-                                dx = current_point.x - first_point.x
-                                dy = current_point.y - first_point.y
-                                distance = math.sqrt(dx*dx + dy*dy)
-                                # Solo se considera cierre si hay al menos 3 vértices en total (2 existentes + el clic actual cerca del primero)
-                                if distance < config.POLYGON_CLOSE_THRESHOLD and len(self.polygon_points) >= 2:
-                                    should_close = True
-                                    print(f"  Detectado cierre de polígono (distancia: {distance:.1f})")
-
-                            if should_close:
-                                # Solo cerrar si hay al menos 3 vértices (2 ya puestos + el clic actual que cierra)
-                                print(f"  Cerrando polígono. Último lado: {self.polygon_points[-1]} -> {self.polygon_points[0]}")
-                                self._draw_bresenham_line(self.polygon_points[-1], self.polygon_points[0], self.draw_color)
-                                self.polygon_points = [] # Resetear
-                                # else: # Ya no es necesario este else, la condición de cierre implica >= 2 puntos
-                                #    print("  No se puede cerrar polígono con menos de 3 vértices.")
-                                # No añadir el punto si la intención era cerrar
-                            else:
-                                self.polygon_points.append(current_point)
-                                print(f"  Añadido punto Polígono {len(self.polygon_points)}: {current_point}")
-                                # self.canvas.draw_pixel(current_point.x, current_point.y, config.DARK_GRAY) # Feedback en _render
-                                # Dibujar el último segmento añadido (si hay al menos 2 puntos)
+                        # Asegurarse que no estemos en modo prompt para dibujar
+                        if not self.is_typing_prompt:
+                            relative_x = abs_mouse_pos[0] - self.canvas.rect.x
+                            relative_y = abs_mouse_pos[1] - self.canvas.rect.y
+                            current_point = Point(relative_x, relative_y)
+                            print(f"Clic en Lienzo en ({relative_x}, {relative_y}). Herramienta: {self.current_tool}")
+                            
+                            # --- Lógica según herramienta de dibujo ---
+                            if self.current_tool == "pixel":
+                                self.canvas.draw_pixel(current_point.x, current_point.y, self.draw_color)
+                            elif self.current_tool in ["dda_line", "bresenham_line"]:
+                                if not self.line_start_point:
+                                    self.line_start_point = current_point
+                                    print(f"  Inicio línea en {current_point}")
+                                else:
+                                    print(f"  Fin línea en {current_point}")
+                                    if self.current_tool == "dda_line":
+                                        self._draw_dda_line(self.line_start_point, current_point, self.draw_color)
+                                    else: # bresenham_line
+                                        self._draw_bresenham_line(self.line_start_point, current_point, self.draw_color)
+                                    self.line_start_point = None # Resetear para la próxima línea
+                            elif self.current_tool == "bresenham_circle":
+                                if not self.circle_center:
+                                    self.circle_center = current_point
+                                    print(f"  Centro círculo en {current_point}")
+                                else:
+                                    dx = current_point.x - self.circle_center.x
+                                    dy = current_point.y - self.circle_center.y
+                                    radius = int(math.sqrt(dx*dx + dy*dy))
+                                    print(f"  Punto borde en {current_point}, Radio calculado: {radius}")
+                                    self._draw_bresenham_circle(self.circle_center, radius)
+                                    self.circle_center = None
+                            elif self.current_tool == "ellipse":
+                                 if len(self.ellipse_points) == 0:
+                                     self.ellipse_points.append(current_point)
+                                     print(f"  Centro elipse en {current_point}")
+                                 elif len(self.ellipse_points) == 1:
+                                     center = self.ellipse_points[0]
+                                     rx = abs(current_point.x - center.x)
+                                     ry = abs(current_point.y - center.y)
+                                     print(f"  Punto borde en {current_point}, Rx={rx}, Ry={ry}")
+                                     self._draw_ellipse(center, rx, ry)
+                                     self.ellipse_points = []
+                            elif self.current_tool == "bezier_curve":
+                                self.bezier_points.append(current_point)
+                                print(f"  Añadido punto Bézier {len(self.bezier_points)}/4: {current_point}")
+                                if len(self.bezier_points) == 4:
+                                    print("  Dibujando curva Bézier...")
+                                    self._draw_bezier_curve(self.bezier_points)
+                                    self.bezier_points = []
+                            elif self.current_tool == "triangle":
+                                self.triangle_points.append(current_point)
+                                print(f"  Añadido punto Triángulo {len(self.triangle_points)}/3: {current_point}")
+                                if len(self.triangle_points) == 3:
+                                    print("  Dibujando triángulo...")
+                                    self._draw_triangle(self.triangle_points)
+                                    self.triangle_points = []
+                            elif self.current_tool == "rectangle":
+                                self.rectangle_points.append(current_point)
+                                print(f"  Añadido punto Rectángulo {len(self.rectangle_points)}/2: {current_point}")
+                                if len(self.rectangle_points) == 2:
+                                    print("  Dibujando rectángulo...")
+                                    self._draw_rectangle(self.rectangle_points[0], self.rectangle_points[1])
+                                    self.rectangle_points = []
+                            elif self.current_tool == "polygon":
+                                should_close = False
                                 if len(self.polygon_points) >= 2:
-                                    # Llamamos a _draw_polygon que ahora solo dibuja el último segmento
-                                    self._draw_polygon(self.polygon_points)
-
+                                    first_point = self.polygon_points[0]
+                                    dx = current_point.x - first_point.x
+                                    dy = current_point.y - first_point.y
+                                    distance = math.sqrt(dx*dx + dy*dy)
+                                    if distance < config.POLYGON_CLOSE_THRESHOLD:
+                                        should_close = True
+                                        print(f"  Detectado cierre de polígono (distancia: {distance:.1f})")
+                                if should_close:
+                                    if len(self.polygon_points) >= 2: # Check again to ensure at least 3 vertices total
+                                        print(f"  Cerrando polígono. Último lado: {self.polygon_points[-1]} -> {self.polygon_points[0]}")
+                                        self._draw_bresenham_line(self.polygon_points[-1], self.polygon_points[0], self.draw_color)
+                                        self.polygon_points = []
+                                    else:
+                                        print("  Clic cerca del inicio, pero no hay suficientes puntos para cerrar. Añadiendo punto.")
+                                        self.polygon_points.append(current_point)
+                                        self._draw_polygon(self.polygon_points) # Draw the new segment
+                                else:
+                                    self.polygon_points.append(current_point)
+                                    print(f"  Añadido punto Polígono {current_point}")
+                                    if len(self.polygon_points) >= 2:
+                                        self._draw_polygon(self.polygon_points)
+                        else:
+                             # Si estamos en modo prompt, un clic en el lienzo no hace nada
+                             print("Clic en lienzo ignorado (Modo Prompt IA activo)")
 
                     # Verificar clic en el panel de control
-                    elif mouse_pos_on_controls: # Si el clic fue sobre el panel (y no sobre el lienzo)
-                        print(f"Clic en Panel en ({mouse_pos_on_controls[0]}, {mouse_pos_on_controls[1]})")
-                        # Llamar a handle_click y obtener el resultado
-                        click_result: Optional[Tuple[str, object]] = self.controls.handle_click(mouse_pos_on_controls)
-
+                    elif mouse_pos_on_controls:
+                        click_result = self.controls.handle_click(mouse_pos_on_controls)
                         if click_result:
-                            click_type, value = click_result # Desempaquetar la tupla
-
+                            click_type, value = click_result
                             if click_type == "tool":
-                                tool_id = cast(str, value) # Asegurar tipo
+                                tool_id = cast(str, value)
                                 print(f"  Botón de Herramienta clickeado: {tool_id}")
-                                if tool_id == "clear":
-                                    print("  Acción: Limpiar lienzo y resetear estados.")
-                                    self.canvas.clear()
-                                    self._reset_all_states()
-                                    # No cambiamos la herramienta actual al limpiar
-                                elif self.current_tool != tool_id: # Si se seleccionó una herramienta diferente
-                                    print(f"  Cambiando herramienta a: {tool_id}")
-                                    self.current_tool = tool_id
-                                    # Resetear estados al cambiar de herramienta
-                                    self._reset_all_states()
-                                else:
-                                     print(f"  Herramienta {tool_id} ya estaba seleccionada.")
-                                     # Opcional: resetear estado si se vuelve a clickear la misma herramienta
-                                     # self._reset_all_states()
+
+                                # --- Lógica Revisada para Cambio de Herramienta ---
+                                if tool_id == "gemini_generate":
+                                    if GEMINI_AVAILABLE and self.gemini_model_instance:
+                                        if not self.is_typing_prompt: # Solo activar si no está activo ya
+                                            self.is_typing_prompt = True
+                                            self.current_prompt_text = ""
+                                            self.generated_image_surface = None
+                                            self.gemini_status_message = config.PROMPT_INPUT_PLACEHOLDER
+                                            self.current_tool = "gemini_generate" # Marcar como herramienta activa
+                                            self._reset_drawing_states() # Resetear puntos de figuras anteriores
+                                            print("Modo escritura de prompt activado.")
+                                    else:
+                                        self.gemini_status_message = "Error: IA no disponible/configurada."
+                                        print(f"Advertencia: {self.gemini_status_message}")
+                                
+                                elif tool_id == "clear":
+                                     print("  Acción: Limpiar lienzo y resetear estados.")
+                                     self.canvas.clear()
+                                     self.generated_image_surface = None # Limpiar imagen generada
+                                     self._reset_all_states() # Resetear todo
+                                
+                                elif self.current_tool != tool_id: # Cambiando a OTRA herramienta
+                                     # Si estábamos escribiendo prompt, cancelarlo
+                                     if self.is_typing_prompt:
+                                         print("Cambiando de herramienta mientras se escribía prompt. Cancelando prompt.")
+                                         self._reset_all_states() # Resetear todo si cancelamos prompt
+
+                                     print(f"  Cambiando herramienta a: {tool_id}")
+                                     self.current_tool = tool_id
+                                     self._reset_drawing_states() # Resetear solo dibujo
+                                
+                                else: # Clic en la misma herramienta de dibujo (no IA, no clear)
+                                     print(f"  Herramienta {tool_id} ya estaba seleccionada. Reseteando estado pendiente.")
+                                     self._reset_drawing_states() # Resetear solo dibujo
 
                             elif click_type == "color":
-                                color_value = cast(pygame.Color, value) # Asegurar tipo
+                                color_value = cast(pygame.Color, value)
                                 if self.draw_color != color_value:
                                     print(f"  Cambiando color de dibujo a: {color_value}")
                                     self.draw_color = color_value
@@ -458,14 +905,171 @@ class Application:
                             print("  Clic en panel, pero no sobre un botón.")
 
             elif event.type == pygame.KEYDOWN:
-                 if event.key == pygame.K_ESCAPE: # Tecla ESC para cancelar acción actual
-                     print("Tecla ESC presionada - Cancelando acción actual.")
-                     self._reset_all_states()
-                 elif event.key == pygame.K_c: # Tecla 'C' para limpiar
-                    print("Tecla 'c' presionada - Limpiando lienzo.")
-                    self.canvas.clear()
-                    self._reset_all_states() # Usar función helper
+                 # Atajos de teclado (solo si NO estamos escribiendo prompt)
+                 if not self.is_typing_prompt:
+                     if event.key == pygame.K_ESCAPE:
+                         print("Tecla ESC presionada - Cancelando acción actual (Dibujo).")
+                         self._reset_drawing_states()
+                     elif event.key == pygame.K_c:
+                         print("Tecla 'c' presionada - Limpiando lienzo.")
+                         self.canvas.clear()
+                         self.generated_image_surface = None
+                         self._reset_all_states() # Resetear todo al limpiar
+                     elif event.key == pygame.K_g: # Atajo para "Generar con IA"
+                         print("Tecla 'g' presionada - Activando generación con IA.")
+                         if GEMINI_AVAILABLE and self.gemini_model_instance:
+                             if not self.is_typing_prompt:
+                                 self.is_typing_prompt = True
+                                 self.current_prompt_text = ""
+                                 self.generated_image_surface = None
+                                 self.gemini_status_message = config.PROMPT_INPUT_PLACEHOLDER
+                                 self.current_tool = "gemini_generate"
+                                 self._reset_drawing_states() # Resetear dibujo anterior
+                                 print("Modo escritura de prompt activado.")
+                         else:
+                             self.gemini_status_message = "Error: IA no disponible/configurada."
+                             print(f"Advertencia: {self.gemini_status_message}")
+    def _render(self) -> None:
+            """
+            Dibuja todos los elementos visibles en la pantalla.
 
+            Limpia la pantalla, dibuja el lienzo (que ahora puede contener la imagen generada por IA),
+            el panel de controles, la UI del prompt/estado, y el feedback visual de las herramientas.
+            Finalmente, actualiza la pantalla de Pygame.
+            """
+            # 1. Limpiar la pantalla principal
+            self.screen.fill(config.WINDOW_BG_COLOR)
+
+            # 2. Dibujar el lienzo (que ahora puede contener la imagen generada por IA)
+            #    La llamada a _call_gemini_api ya habrá actualizado self.canvas.surface si se generó una imagen.
+            self.canvas.render(self.screen) 
+
+            # 3. --- BLOQUE ELIMINADO ---
+            # Ya no dibujamos self.generated_image_surface aquí, porque ahora es parte del canvas.
+            # if self.generated_image_surface:
+                # ... (código anterior para escalar y blitear self.generated_image_surface) ...
+            # --- FIN BLOQUE ELIMINADO ---
+
+            # 4. Dibujar el panel de controles
+            self.controls.render(self.screen, self.current_tool, self.draw_color)
+
+            # 5. Renderizar UI para prompt de Gemini y mensajes de estado (parte inferior)
+            #    (Esta lógica no necesita cambios)
+            status_area_rect = pygame.Rect(0, config.SCREEN_HEIGHT - 40, config.SCREEN_WIDTH, 40)
+            if self.is_typing_prompt:
+                cursor = "_" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
+                prompt_text_render = f"{config.PROMPT_ACTIVE_PREFIX}{self.current_prompt_text}{cursor}"
+                prompt_surf = self.ui_font_normal.render(prompt_text_render, True, config.PROMPT_INPUT_TEXT_COLOR, config.PROMPT_INPUT_BG_COLOR)
+                prompt_rect = prompt_surf.get_rect(centerx=self.screen.get_rect().centerx, bottom=config.SCREEN_HEIGHT - 10)
+                prompt_rect.left = max(10, prompt_rect.left) # Evitar que se salga por la izquierda
+                prompt_rect.right = min(config.SCREEN_WIDTH - 10, prompt_rect.right) # Evitar que se salga por la derecha
+                # Dibujar fondo para el prompt
+                bg_rect = prompt_rect.inflate(10, 6)
+                bg_rect.width = min(bg_rect.width, config.SCREEN_WIDTH - 20) # Limitar ancho del fondo
+                bg_rect.centerx = self.screen.get_rect().centerx
+                pygame.draw.rect(self.screen, config.PROMPT_INPUT_BG_COLOR, bg_rect, border_radius=3)
+                pygame.draw.rect(self.screen, config.DARK_GRAY, bg_rect, 1, border_radius=3)
+                self.screen.blit(prompt_surf, prompt_rect) # Dibujar texto encima
+            elif self.gemini_status_message:
+                # Dibujar mensaje de estado si no estamos escribiendo prompt
+                status_surf = self.ui_font_normal.render(self.gemini_status_message, True, config.STATUS_MESSAGE_COLOR)
+                status_rect = status_surf.get_rect(centerx=self.screen.get_rect().centerx, bottom=config.SCREEN_HEIGHT - 10)
+                status_rect.left = max(10, status_rect.left)
+                status_rect.right = min(config.SCREEN_WIDTH - 10, status_rect.right)
+                # Dibujar fondo opcional para el estado
+                bg_rect_status = status_rect.inflate(10, 6)
+                bg_rect_status.width = min(bg_rect_status.width, config.SCREEN_WIDTH - 20)
+                bg_rect_status.centerx = self.screen.get_rect().centerx
+                pygame.draw.rect(self.screen, config.LIGHT_GRAY, bg_rect_status, border_radius=3) # Fondo gris claro
+                self.screen.blit(status_surf, status_rect)
+
+            # 6. Dibujar feedback visual para herramientas multi-punto (Previsualizaciones)
+            #    (Esta lógica no necesita cambios)
+            mouse_pos_abs = pygame.mouse.get_pos()
+            mouse_on_canvas = self.canvas.rect.collidepoint(mouse_pos_abs)
+
+            if not self.is_typing_prompt: # Solo mostrar previsualizaciones si no estamos dibujando
+                # Previsualización Bézier
+                for i, p in enumerate(self.bezier_points):
+                    p_abs = self.canvas.to_absolute_pos(p)
+                    pygame.draw.circle(self.screen, config.RED, p_abs, 4)
+                    if i > 0:
+                        prev_p_abs = self.canvas.to_absolute_pos(self.bezier_points[i-1])
+                        pygame.draw.line(self.screen, config.LIGHT_GRAY, prev_p_abs, p_abs, 1)
+                if self.bezier_points and mouse_on_canvas:
+                    last_p_abs = self.canvas.to_absolute_pos(self.bezier_points[-1])
+                    pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
+
+                # Previsualización Triángulo
+                for i, p in enumerate(self.triangle_points):
+                    p_abs = self.canvas.to_absolute_pos(p)
+                    pygame.draw.circle(self.screen, config.GREEN, p_abs, 4)
+                    if i > 0:
+                        prev_p_abs = self.canvas.to_absolute_pos(self.triangle_points[i-1])
+                        pygame.draw.line(self.screen, config.LIGHT_GRAY, prev_p_abs, p_abs, 1)
+                if self.triangle_points and mouse_on_canvas:
+                    last_p_abs = self.canvas.to_absolute_pos(self.triangle_points[-1])
+                    pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
+                    if len(self.triangle_points) == 2:
+                        first_p_abs = self.canvas.to_absolute_pos(self.triangle_points[0])
+                        pygame.draw.line(self.screen, config.LIGHT_GRAY, mouse_pos_abs, first_p_abs, 1)
+
+                # Previsualización Rectángulo
+                for p in self.rectangle_points:
+                    pygame.draw.circle(self.screen, config.BLUE, self.canvas.to_absolute_pos(p), 4)
+                if len(self.rectangle_points) == 1 and mouse_on_canvas:
+                    p_start_abs = self.canvas.to_absolute_pos(self.rectangle_points[0])
+                    x0, y0 = p_start_abs
+                    x1, y1 = mouse_pos_abs
+                    preview_rect = pygame.Rect(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
+                    pygame.draw.rect(self.screen, config.LIGHT_GRAY, preview_rect, 1)
+
+                # Previsualización Polígono
+                for i, p in enumerate(self.polygon_points):
+                    p_abs = self.canvas.to_absolute_pos(p)
+                    pygame.draw.circle(self.screen, config.DARK_GRAY, p_abs, 4)
+                if self.polygon_points and mouse_on_canvas:
+                    last_p_abs = self.canvas.to_absolute_pos(self.polygon_points[-1])
+                    pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
+                    if len(self.polygon_points) >= 2:
+                        first_p_abs = self.canvas.to_absolute_pos(self.polygon_points[0])
+                        dx = mouse_pos_abs[0] - first_p_abs[0]
+                        dy = mouse_pos_abs[1] - first_p_abs[1]
+                        dist_sq = dx*dx + dy*dy 
+                        close_color = config.YELLOW if dist_sq < config.POLYGON_CLOSE_THRESHOLD**2 else config.LIGHT_GRAY
+                        pygame.draw.line(self.screen, close_color, mouse_pos_abs, first_p_abs, 1)
+
+                # Previsualización Elipse
+                if len(self.ellipse_points) == 1:
+                    center_abs = self.canvas.to_absolute_pos(self.ellipse_points[0])
+                    pygame.draw.circle(self.screen, config.MAGENTA, center_abs, 4)
+                    if mouse_on_canvas:
+                        rx = abs(mouse_pos_abs[0] - center_abs[0])
+                        ry = abs(mouse_pos_abs[1] - center_abs[1])
+                        if rx > 0 and ry > 0:
+                            preview_rect = pygame.Rect(center_abs[0] - rx, center_abs[1] - ry, 2*rx, 2*ry)
+                            pygame.draw.ellipse(self.screen, config.LIGHT_GRAY, preview_rect, 1)
+
+                # Previsualización Línea
+                if self.line_start_point:
+                    start_p_abs = self.canvas.to_absolute_pos(self.line_start_point)
+                    pygame.draw.circle(self.screen, config.ORANGE, start_p_abs, 4)
+                    if mouse_on_canvas:
+                        pygame.draw.line(self.screen, config.LIGHT_GRAY, start_p_abs, mouse_pos_abs, 1)
+
+                # Previsualización Círculo
+                if self.circle_center:
+                    center_abs = self.canvas.to_absolute_pos(self.circle_center)
+                    pygame.draw.circle(self.screen, config.CYAN, center_abs, 4)
+                    if mouse_on_canvas:
+                        dx = mouse_pos_abs[0] - center_abs[0]
+                        dy = mouse_pos_abs[1] - center_abs[1]
+                        radius = int(math.sqrt(dx*dx + dy*dy))
+                        if radius > 0:
+                            pygame.draw.circle(self.screen, config.LIGHT_GRAY, center_abs, radius, 1)
+
+            # 7. Actualizar la pantalla completa
+            pygame.display.flip()
 
     def _update(self, dt: float) -> None:
         """
@@ -473,128 +1077,11 @@ class Application:
 
         Actualmente, esta función no realiza ninguna acción específica, pero
         está presente para futuras expansiones (ej: animaciones, lógica de juego).
-        La actualización del estado 'hover' de los botones se realiza en `_handle_events`.
 
         Args:
             dt (float): Delta time, tiempo transcurrido desde el último frame en segundos.
         """
         pass
-
-    def _render(self) -> None:
-        """
-        Dibuja todos los elementos visibles en la pantalla.
-
-        Limpia la pantalla, dibuja el lienzo, el panel de controles, y cualquier
-        feedback visual temporal para las herramientas de dibujo activas (puntos
-        de control, líneas de previsualización, etc.). Finalmente, actualiza
-        la pantalla de Pygame.
-        """
-        self.screen.fill(config.WINDOW_BG_COLOR) # Limpiar pantalla con color de fondo
-
-        # Dibujar el lienzo sobre la pantalla
-        self.canvas.render(self.screen)
-
-        # Dibujar el panel de controles pasando el estado actual
-        self.controls.render(self.screen, self.current_tool, self.draw_color)
-
-        # --- Dibujar feedback visual para herramientas multi-punto ---
-        # Obtener posición absoluta del ratón si está sobre el lienzo para previsualizaciones
-        mouse_pos_abs = pygame.mouse.get_pos()
-        mouse_on_canvas = self.canvas.rect.collidepoint(mouse_pos_abs)
-
-        # Dibujar puntos temporales y previsualización para Bézier
-        for i, p in enumerate(self.bezier_points):
-            p_abs = self.canvas.to_absolute_pos(p)
-            pygame.draw.circle(self.screen, config.RED, p_abs, 4) # Círculo rojo pequeño
-            if i > 0:
-                prev_p_abs = self.canvas.to_absolute_pos(self.bezier_points[i-1])
-                pygame.draw.line(self.screen, config.LIGHT_GRAY, prev_p_abs, p_abs, 1)
-        # Previsualizar siguiente segmento si hay puntos y el ratón está en el lienzo
-        if self.bezier_points and mouse_on_canvas:
-             last_p_abs = self.canvas.to_absolute_pos(self.bezier_points[-1])
-             pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
-
-
-        # Dibujar puntos temporales y previsualización para Triángulo
-        for i, p in enumerate(self.triangle_points):
-            p_abs = self.canvas.to_absolute_pos(p)
-            pygame.draw.circle(self.screen, config.GREEN, p_abs, 4)
-            if i > 0:
-                prev_p_abs = self.canvas.to_absolute_pos(self.triangle_points[i-1])
-                pygame.draw.line(self.screen, config.LIGHT_GRAY, prev_p_abs, p_abs, 1)
-        # Previsualizar siguiente segmento y cierre
-        if self.triangle_points and mouse_on_canvas:
-            last_p_abs = self.canvas.to_absolute_pos(self.triangle_points[-1])
-            pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
-            if len(self.triangle_points) == 2: # Si estamos por poner el tercer punto
-                first_p_abs = self.canvas.to_absolute_pos(self.triangle_points[0])
-                pygame.draw.line(self.screen, config.LIGHT_GRAY, mouse_pos_abs, first_p_abs, 1)
-
-
-        # Dibujar puntos temporales y previsualización para Rectángulo
-        for p in self.rectangle_points:
-            pygame.draw.circle(self.screen, config.BLUE, self.canvas.to_absolute_pos(p), 4)
-        # Previsualizar rectángulo
-        if len(self.rectangle_points) == 1 and mouse_on_canvas:
-            p_start_abs = self.canvas.to_absolute_pos(self.rectangle_points[0])
-            x0, y0 = p_start_abs
-            x1, y1 = mouse_pos_abs
-            preview_rect = pygame.Rect(min(x0, x1), min(y0, y1), abs(x1 - x0), abs(y1 - y0))
-            pygame.draw.rect(self.screen, config.LIGHT_GRAY, preview_rect, 1)
-
-
-        # Dibujar puntos y líneas temporales para Polígono
-        for i, p in enumerate(self.polygon_points):
-            p_abs = self.canvas.to_absolute_pos(p)
-            pygame.draw.circle(self.screen, config.DARK_GRAY, p_abs, 4)
-            # Las líneas entre puntos ya existentes se dibujan al hacer clic
-            # if i > 0:
-            #     prev_p_abs = self.canvas.to_absolute_pos(self.polygon_points[i-1])
-            #     pygame.draw.line(self.screen, config.DARK_GRAY, prev_p_abs, p_abs, 1) # Dibujado por _draw_polygon
-        # Previsualizar siguiente segmento y línea de cierre potencial
-        if self.polygon_points and mouse_on_canvas:
-            last_p_abs = self.canvas.to_absolute_pos(self.polygon_points[-1])
-            # Línea desde el último punto al ratón
-            pygame.draw.line(self.screen, config.LIGHT_GRAY, last_p_abs, mouse_pos_abs, 1)
-            # Línea desde el ratón al primer punto si hay al menos 2 puntos (para cerrar el tercero o más)
-            if len(self.polygon_points) >= 2:
-                 first_p_abs = self.canvas.to_absolute_pos(self.polygon_points[0])
-                 pygame.draw.line(self.screen, config.LIGHT_GRAY, mouse_pos_abs, first_p_abs, 1)
-
-
-        # Dibujar puntos temporales y previsualización para Elipse
-        if len(self.ellipse_points) == 1:
-            center_abs = self.canvas.to_absolute_pos(self.ellipse_points[0])
-            pygame.draw.circle(self.screen, config.MAGENTA, center_abs, 4)
-            # Dibujar previsualización de la elipse
-            if mouse_on_canvas:
-                rx = abs(mouse_pos_abs[0] - center_abs[0])
-                ry = abs(mouse_pos_abs[1] - center_abs[1])
-                # Evitar dibujar elipse con radio 0
-                if rx > 0 and ry > 0:
-                    preview_rect = pygame.Rect(center_abs[0] - rx, center_abs[1] - ry, 2*rx, 2*ry)
-                    pygame.draw.ellipse(self.screen, config.LIGHT_GRAY, preview_rect, 1)
-
-        # Dibujar punto inicial y previsualización de línea
-        if self.line_start_point:
-            start_p_abs = self.canvas.to_absolute_pos(self.line_start_point)
-            pygame.draw.circle(self.screen, config.ORANGE, start_p_abs, 4)
-            if mouse_on_canvas:
-                 pygame.draw.line(self.screen, config.LIGHT_GRAY, start_p_abs, mouse_pos_abs, 1)
-
-        # Dibujar centro y previsualización de círculo
-        if self.circle_center:
-            center_abs = self.canvas.to_absolute_pos(self.circle_center)
-            pygame.draw.circle(self.screen, config.CYAN, center_abs, 4)
-            if mouse_on_canvas:
-                dx = mouse_pos_abs[0] - center_abs[0]
-                dy = mouse_pos_abs[1] - center_abs[1]
-                radius = int(math.sqrt(dx*dx + dy*dy))
-                if radius > 0:
-                    pygame.draw.circle(self.screen, config.LIGHT_GRAY, center_abs, radius, 1)
-
-        pygame.display.flip() # Actualizar la pantalla completa
-
 
     def run(self) -> None:
         """
@@ -613,7 +1100,142 @@ class Application:
             self._render()
 
         print("Saliendo de la aplicación...")
-        # Pygame se cierra en main.py's finally block
+        
+    
+    def _call_gemini_api(self, image_input: PILImage.Image, prompt_text: str) -> None:
+        """
+        Llama a la API de Gemini con la imagen del lienzo y el prompt del usuario.
+        Procesa la respuesta para obtener la imagen generada y/o texto.
+        Si se recibe una imagen, reemplaza el contenido del canvas con ella.
+        Actualiza self.gemini_status_message.
+        """
+        if not self.gemini_model_instance:
+            self.gemini_status_message = "Error: Modelo Gemini no inicializado."
+            print(self.gemini_status_message)
+            return
+        
+        # Verificar si Pillow está disponible (PILImage se establece en None si falla el import)
+        if not PILImage:
+             self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
+             print(f"Error: {self.gemini_status_message}")
+             return
 
-    # El método __del__ fue eliminado ya que el cierre de Pygame
-    # se gestiona de forma más fiable en el bloque finally de main.py.
+        self.gemini_status_message = config.GEMINI_STATUS_LOADING # "IA pensando..."
+        print(f"Llamando a Gemini API con prompt: '{prompt_text}' y una imagen de entrada.")
+        self._render() # Forzar redibujado para mostrar mensaje de "pensando"
+        pygame.time.wait(10) # Pequeña pausa para que se vea
+
+        try:
+            # Construir el contenido para la API
+            contents = [ 
+                prompt_text, 
+                image_input 
+            ]
+
+            # Configuración para solicitar imagen y texto en la respuesta
+            generation_config_dict = {
+                "response_modalities": ['TEXT', 'IMAGE'], 
+                "candidate_count": 1 
+            }
+            print(f"Usando generation_config: {generation_config_dict}")
+
+            # Llamada a la API
+            response = self.gemini_model_instance.generate_content(
+                contents=contents,
+                generation_config=generation_config_dict,
+            )
+
+            # Procesar la respuesta
+            # self.generated_image_surface = None # Ya no almacenamos aquí, reemplazamos canvas
+            generated_text_response = ""
+            image_processed_and_applied = False # Flag para saber si se actualizó el canvas
+
+            # print(f"Respuesta cruda de Gemini: {response}") # Descomentar para depuración
+
+            if response.candidates:
+                # Iterar sobre las partes de la respuesta del primer candidato
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'text') and part.text:
+                        generated_text_response += part.text + "\n" # Acumular texto
+                    
+                    # Procesar si es una imagen
+                    elif hasattr(part, 'inline_data') and part.inline_data and part.inline_data.mime_type.startswith('image/'):
+                        try:
+                            print(f"Recibida parte de imagen con mime_type: {part.inline_data.mime_type}")
+                            image_data_bytes = part.inline_data.data
+                            
+                            # Convertir bytes a PIL Image
+                            generated_pil_image = PILImage.open(io.BytesIO(image_data_bytes))
+                            
+                            # Convertir PIL Image a Pygame Surface temporalmente
+                            temp_pygame_surface = None
+                            mode = generated_pil_image.mode
+                            size = generated_pil_image.size
+                            data_str = generated_pil_image.tobytes()
+                            
+                            if mode in ('RGB', 'RGBA'):
+                                temp_pygame_surface = pygame.image.fromstring(data_str, size, mode)
+                            else: 
+                                print(f"Modo de imagen no directamente soportado: {mode}. Intentando convertir a RGBA.")
+                                try:
+                                     generated_pil_image_converted = generated_pil_image.convert('RGBA')
+                                     mode = generated_pil_image_converted.mode
+                                     size = generated_pil_image_converted.size
+                                     data_str = generated_pil_image_converted.tobytes()
+                                     temp_pygame_surface = pygame.image.fromstring(data_str, size, mode)
+                                except Exception as convert_err:
+                                     print(f"Error al convertir imagen PIL a RGBA: {convert_err}")
+
+                            # --- Reemplazar contenido del canvas ---
+                            if temp_pygame_surface:
+                                print("Reemplazando contenido del lienzo con la imagen generada.")
+                                canvas_w, canvas_h = self.canvas.rect.size
+                                
+                                # Reescalar la imagen generada para que llene exactamente el canvas
+                                try:
+                                    scaled_generated_surface = pygame.transform.smoothscale(temp_pygame_surface, (canvas_w, canvas_h))
+                                except ValueError:
+                                    print("Advertencia: No se pudo escalar suavemente, usando scale normal.")
+                                    scaled_generated_surface = pygame.transform.scale(temp_pygame_surface, (canvas_w, canvas_h))
+
+                                # Limpiar el canvas actual (fondo blanco por defecto)
+                                self.canvas.clear() 
+                                # Dibujar la nueva imagen (reescalada) sobre la superficie del canvas
+                                self.canvas.surface.blit(scaled_generated_surface, (0, 0)) 
+
+                                print("Lienzo actualizado con la imagen generada.")
+                                image_processed_and_applied = True 
+                                # break # Descomentar si solo quieres procesar la primera imagen encontrada
+                            # --- Fin Reemplazar contenido del canvas ---
+                        
+                        except Exception as img_proc_err:
+                            # Error procesando la imagen, pero puede haber texto
+                            self.gemini_status_message = f"Error procesando imagen de Gemini: {str(img_proc_err)[:100]}"
+                            print(f"Error: {self.gemini_status_message}")
+            
+            # --- Determinar el mensaje final ---
+            if image_processed_and_applied:
+                self.gemini_status_message = "¡Lienzo actualizado con IA!"
+                if generated_text_response:
+                     self.gemini_status_message += " (y texto recibido)"
+                     print(f"Texto adicional de Gemini:\n{generated_text_response.strip()}")
+            elif generated_text_response:
+                 self.gemini_status_message = f"IA respondió con texto: {generated_text_response.strip()[:100]}..."
+                 print(f"Respuesta solo de texto de Gemini:\n{generated_text_response.strip()}")
+            else:
+                # Revisar si fue bloqueado o respuesta vacía
+                block_reason = ""
+                block_message = ""
+                if hasattr(response, 'prompt_feedback') and response.prompt_feedback and response.prompt_feedback.block_reason:
+                     block_reason = f" Razón: {response.prompt_feedback.block_reason}"
+                     block_message = f" Msj: {response.prompt_feedback.block_reason_message}" if response.prompt_feedback.block_reason_message else ""
+                     self.gemini_status_message = f"Error: Respuesta de IA bloqueada.{block_reason}{block_message}"
+                else:
+                     self.gemini_status_message = "Error: Respuesta de IA vacía o inesperada."
+                print(self.gemini_status_message)
+
+
+        except Exception as e:
+            self.gemini_status_message = f"Error en llamada a IA: {type(e).__name__}"
+            print(f"Error crítico durante la llamada a Gemini API: {self.gemini_status_message}")
+            traceback.print_exc() # Imprimir traceback para depuración
