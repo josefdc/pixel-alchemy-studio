@@ -105,7 +105,7 @@ class Application:
         self.polygon_points: List[Point] = []
         self.ellipse_points: List[Point] = [] # Usaremos 2 puntos (centro y un punto en borde)
         self.draw_color: pygame.Color = config.BLACK # Color de dibujo por defecto
-
+        self.is_drawing: bool = False  # Flag para saber si se está dibujando
         # --- Nuevos atributos para la funcionalidad de IA ---
         self.gemini_model_instance = None  # Para la instancia del GenerativeModel
         self.is_typing_prompt: bool = False
@@ -715,10 +715,9 @@ class Application:
             if event.type == pygame.QUIT:
                 self.is_running = False
 
-            # --- Manejo de entrada de texto para el prompt ---
-            # Procesar esto ANTES de otros eventos KEYDOWN si estamos escribiendo
+            # --- Manejo de entrada de texto para el prompt (sin cambios) ---
             if self.is_typing_prompt and event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_RETURN:  # Tecla Enter: finalizar prompt y llamar a IA
+                if event.key == pygame.K_RETURN:
                     self.is_typing_prompt = False
                     prompt_final = self.current_prompt_text.strip()
                     if not prompt_final:
@@ -730,55 +729,49 @@ class Application:
                     else:
                         print(f"Prompt finalizado: '{prompt_final}'. Iniciando generación...")
                         self.gemini_status_message = config.GEMINI_STATUS_LOADING
-                        # Limpiar imagen anterior antes de generar una nueva
                         self.generated_image_surface = None 
-                        
                         pil_image = self._capture_canvas_as_pil_image()
                         if pil_image:
-                            # --- LLAMADA A LA API REAL ---
                             self._call_gemini_api(pil_image, prompt_final) 
                         else:
-                            # El mensaje de error ya se estableció en _capture_canvas_as_pil_image
-                            pass # Mantener el mensaje de error de captura
-
-                elif event.key == pygame.K_BACKSPACE: # Tecla Borrar
+                            pass
+                elif event.key == pygame.K_BACKSPACE:
                     self.current_prompt_text = self.current_prompt_text[:-1]
-                elif event.key == pygame.K_ESCAPE: # Tecla Escape: cancelar prompt
+                elif event.key == pygame.K_ESCAPE:
                     print("Entrada de prompt cancelada.")
-                    self._reset_all_states() # Resetear TODO al cancelar prompt
-                else: # Otras teclas: añadir caracter al prompt
-                    if len(self.current_prompt_text) < 200: # Limitar longitud
+                    self._reset_all_states()
+                else:
+                    if len(self.current_prompt_text) < 200:
                         self.current_prompt_text += event.unicode
-                
-                # Si procesamos una tecla mientras escribíamos prompt, no hacemos nada más con ella
-                continue # Salta al siguiente evento del bucle
+                continue
 
-            # --- Otros eventos (clics, teclas normales cuando NO se escribe prompt) ---
-            elif event.type == pygame.MOUSEBUTTONDOWN:
+            # --- Manejo de Clics y Movimiento del Ratón ---
+            if event.type == pygame.MOUSEBUTTONDOWN:
                 if event.button == 1: # Clic izquierdo
-                    # Verificar clic en el lienzo
+                    # Clic en el lienzo
                     if self.canvas.rect.collidepoint(abs_mouse_pos):
-                        # Asegurarse que no estemos en modo prompt para dibujar
                         if not self.is_typing_prompt:
                             relative_x = abs_mouse_pos[0] - self.canvas.rect.x
                             relative_y = abs_mouse_pos[1] - self.canvas.rect.y
                             current_point = Point(relative_x, relative_y)
-                            print(f"Clic en Lienzo en ({relative_x}, {relative_y}). Herramienta: {self.current_tool}")
                             
-                            # --- Lógica según herramienta de dibujo ---
+                            # --- MODIFICADO: Lógica de la herramienta Píxel ---
                             if self.current_tool == "pixel":
+                                self.is_drawing = True
                                 self.canvas.draw_pixel(current_point.x, current_point.y, self.draw_color)
+                            # --- FIN DE LA MODIFICACIÓN ---
+
+                            # (El resto de las herramientas de dibujo no cambian)
                             elif self.current_tool in ["dda_line", "bresenham_line"]:
                                 if not self.line_start_point:
                                     self.line_start_point = current_point
-                                    print(f"  Inicio línea en {current_point}")
                                 else:
-                                    print(f"  Fin línea en {current_point}")
                                     if self.current_tool == "dda_line":
                                         self._draw_dda_line(self.line_start_point, current_point, self.draw_color)
-                                    else: # bresenham_line
+                                    else:
                                         self._draw_bresenham_line(self.line_start_point, current_point, self.draw_color)
-                                    self.line_start_point = None # Resetear para la próxima línea
+                                    self.line_start_point = None
+                            # ... (resto de elif para círculo, elipse, etc. sin cambios) ...
                             elif self.current_tool == "bresenham_circle":
                                 if not self.circle_center:
                                     self.circle_center = current_point
@@ -833,67 +826,59 @@ class Application:
                                         should_close = True
                                         print(f"  Detectado cierre de polígono (distancia: {distance:.1f})")
                                 if should_close:
-                                    if len(self.polygon_points) >= 2: # Check again to ensure at least 3 vertices total
+                                    if len(self.polygon_points) >= 2:
                                         print(f"  Cerrando polígono. Último lado: {self.polygon_points[-1]} -> {self.polygon_points[0]}")
                                         self._draw_bresenham_line(self.polygon_points[-1], self.polygon_points[0], self.draw_color)
                                         self.polygon_points = []
                                     else:
                                         print("  Clic cerca del inicio, pero no hay suficientes puntos para cerrar. Añadiendo punto.")
                                         self.polygon_points.append(current_point)
-                                        self._draw_polygon(self.polygon_points) # Draw the new segment
+                                        self._draw_polygon(self.polygon_points)
                                 else:
                                     self.polygon_points.append(current_point)
                                     print(f"  Añadido punto Polígono {current_point}")
                                     if len(self.polygon_points) >= 2:
                                         self._draw_polygon(self.polygon_points)
                         else:
-                             # Si estamos en modo prompt, un clic en el lienzo no hace nada
                              print("Clic en lienzo ignorado (Modo Prompt IA activo)")
 
-                    # Verificar clic en el panel de control
+                    # Clic en el panel de control (sin cambios)
                     elif mouse_pos_on_controls:
+                        # ... (toda la lógica de clic en controles se queda igual)
                         click_result = self.controls.handle_click(mouse_pos_on_controls)
                         if click_result:
                             click_type, value = click_result
                             if click_type == "tool":
                                 tool_id = cast(str, value)
                                 print(f"  Botón de Herramienta clickeado: {tool_id}")
-
-                                # --- Lógica Revisada para Cambio de Herramienta ---
                                 if tool_id == "gemini_generate":
                                     if GEMINI_AVAILABLE and self.gemini_model_instance:
-                                        if not self.is_typing_prompt: # Solo activar si no está activo ya
+                                        if not self.is_typing_prompt:
                                             self.is_typing_prompt = True
                                             self.current_prompt_text = ""
                                             self.generated_image_surface = None
                                             self.gemini_status_message = config.PROMPT_INPUT_PLACEHOLDER
-                                            self.current_tool = "gemini_generate" # Marcar como herramienta activa
-                                            self._reset_drawing_states() # Resetear puntos de figuras anteriores
+                                            self.current_tool = "gemini_generate"
+                                            self._reset_drawing_states()
                                             print("Modo escritura de prompt activado.")
                                     else:
                                         self.gemini_status_message = "Error: IA no disponible/configurada."
                                         print(f"Advertencia: {self.gemini_status_message}")
-                                
                                 elif tool_id == "clear":
                                      print("  Acción: Limpiar lienzo y resetear estados.")
                                      self.canvas.clear()
-                                     self.generated_image_surface = None # Limpiar imagen generada
-                                     self._reset_all_states() # Resetear todo
-                                
-                                elif self.current_tool != tool_id: # Cambiando a OTRA herramienta
-                                     # Si estábamos escribiendo prompt, cancelarlo
+                                     self.generated_image_surface = None
+                                     self._reset_all_states()
+                                elif self.current_tool != tool_id:
                                      if self.is_typing_prompt:
                                          print("Cambiando de herramienta mientras se escribía prompt. Cancelando prompt.")
-                                         self._reset_all_states() # Resetear todo si cancelamos prompt
-
+                                         self._reset_all_states()
                                      print(f"  Cambiando herramienta a: {tool_id}")
                                      self.current_tool = tool_id
-                                     self._reset_drawing_states() # Resetear solo dibujo
-                                
-                                else: # Clic en la misma herramienta de dibujo (no IA, no clear)
+                                     self._reset_drawing_states()
+                                else:
                                      print(f"  Herramienta {tool_id} ya estaba seleccionada. Reseteando estado pendiente.")
-                                     self._reset_drawing_states() # Resetear solo dibujo
-
+                                     self._reset_drawing_states()
                             elif click_type == "color":
                                 color_value = cast(pygame.Color, value)
                                 if self.draw_color != color_value:
@@ -903,9 +888,26 @@ class Application:
                                     print(f"  Color {color_value} ya estaba seleccionado.")
                         else:
                             print("  Clic en panel, pero no sobre un botón.")
+            
+            # --- NUEVO: Manejo de movimiento del ratón ---
+            elif event.type == pygame.MOUSEMOTION:
+                if self.is_drawing and self.current_tool == "pixel":
+                    # pygame.mouse.get_pressed()[0] es para el botón izquierdo
+                    if pygame.mouse.get_pressed()[0] and self.canvas.rect.collidepoint(abs_mouse_pos):
+                        relative_x = abs_mouse_pos[0] - self.canvas.rect.x
+                        relative_y = abs_mouse_pos[1] - self.canvas.rect.y
+                        self.canvas.draw_pixel(relative_x, relative_y, self.draw_color)
+            # --- FIN DEL NUEVO BLOQUE ---
+
+            # --- NUEVO: Manejo de liberación del ratón ---
+            elif event.type == pygame.MOUSEBUTTONUP:
+                if event.button == 1: # Botón izquierdo liberado
+                    if self.is_drawing:
+                        self.is_drawing = False
+            # --- FIN DEL NUEVO BLOQUE ---
 
             elif event.type == pygame.KEYDOWN:
-                 # Atajos de teclado (solo si NO estamos escribiendo prompt)
+                # ... (Lógica de atajos de teclado sin cambios)
                  if not self.is_typing_prompt:
                      if event.key == pygame.K_ESCAPE:
                          print("Tecla ESC presionada - Cancelando acción actual (Dibujo).")
@@ -914,8 +916,8 @@ class Application:
                          print("Tecla 'c' presionada - Limpiando lienzo.")
                          self.canvas.clear()
                          self.generated_image_surface = None
-                         self._reset_all_states() # Resetear todo al limpiar
-                     elif event.key == pygame.K_g: # Atajo para "Generar con IA"
+                         self._reset_all_states()
+                     elif event.key == pygame.K_g:
                          print("Tecla 'g' presionada - Activando generación con IA.")
                          if GEMINI_AVAILABLE and self.gemini_model_instance:
                              if not self.is_typing_prompt:
@@ -924,7 +926,7 @@ class Application:
                                  self.generated_image_surface = None
                                  self.gemini_status_message = config.PROMPT_INPUT_PLACEHOLDER
                                  self.current_tool = "gemini_generate"
-                                 self._reset_drawing_states() # Resetear dibujo anterior
+                                 self._reset_drawing_states()
                                  print("Modo escritura de prompt activado.")
                          else:
                              self.gemini_status_message = "Error: IA no disponible/configurada."
