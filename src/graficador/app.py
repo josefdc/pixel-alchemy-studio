@@ -1121,14 +1121,20 @@ class Application:
              return
 
         self.gemini_status_message = config.GEMINI_STATUS_LOADING # "IA pensando..."
-        print(f"Llamando a Gemini API con prompt: '{prompt_text}' y una imagen de entrada.")
+        print(f"Llamando a Gemini API con prompt original: '{prompt_text}' y una imagen de entrada.")
         self._render() # Forzar redibujado para mostrar mensaje de "pensando"
         pygame.time.wait(10) # Pequeña pausa para que se vea
 
         try:
-            # Construir el contenido para la API
+            # --- MODIFICACIÓN AQUÍ ---
+            # Añadir la instrucción de estilo al prompt del usuario.
+            enhanced_prompt_text = f"{prompt_text}. Keep the same minimal line doodle style."
+            print(f"Prompt mejorado enviado a Gemini: '{enhanced_prompt_text}'")
+            # --- FIN DE LA MODIFICACIÓN ---
+
+            # Construir el contenido para la API usando el prompt mejorado
             contents = [ 
-                prompt_text, 
+                enhanced_prompt_text, # Usar el prompt mejorado
                 image_input 
             ]
 
