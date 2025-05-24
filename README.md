@@ -83,7 +83,7 @@ Follow these steps to get PixelAlchemy Studio up and running on your local machi
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/your-username/pixel-alchemy-studio.git # Replace with your actual repo URL
+   git clone https://github.com/josefdc/pixel-alchemy-studio.git
    cd pixel-alchemy-studio
    ```
 
@@ -101,7 +101,7 @@ Follow these steps to get PixelAlchemy Studio up and running on your local machi
    Example for `pyproject.toml` (ensure yours matches your project's needs):
    ```toml
    [project]
-   name = "pixel_alchemy_studio" # Or "graficador_geometrico" if you prefer
+   name = "pixel_alchemy_studio" 
    version = "0.1.0"
    description = "Interactive drawing with AI-powered image and video generation."
    requires-python = ">=3.11"
