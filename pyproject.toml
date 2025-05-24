@@ -1,7 +1,7 @@
 [project]
-name = "graficador-geometrico"
+name = "PixelAlchemy"
 version = "0.1.0"
-description = "Visualizador interactivo de algoritmos gráficos clásicos con Pygame." # Descripción actualizada
+description = "PixelAlchemy Studio is an interactive 2D drawing application built with Python and Pygame, supercharged with Generative AI" # Descripción actualizada
 authors = [
     { name = "Jose Duarte", email = "josepipe0909@gmail.com" },
 ]
