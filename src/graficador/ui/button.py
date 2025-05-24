@@ -1,54 +1,53 @@
 """
-src/graficador/ui/button.py
-Módulo de la interfaz de usuario para botones.
+User interface button module.
 
-Define la clase `Button` que representa un botón interactivo simple
-utilizado en la interfaz gráfica de la aplicación. Permite detectar
-hover, clics y mantener un estado de selección visual.
+Defines the `Button` class that represents a simple interactive button
+used in the application's graphical interface. Allows detection of
+hover, clicks and maintains a visual selection state.
 """
 import pygame
-from typing import Optional, Tuple # Importar Optional y Tuple
+from typing import Optional, Tuple
 
 class Button:
     """
-    Representa un botón simple clickeable con texto y estado de selección.
+    Represents a simple clickable button with text and selection state.
 
     Attributes:
-        rect (pygame.Rect): El rectángulo que define la posición y tamaño del botón.
-        text (str): El texto mostrado en el botón.
-        identifier (str): Un identificador único para el botón (e.g., 'dda_line').
-        font (pygame.font.Font): La fuente usada para renderizar el texto.
-        base_color (pygame.Color): El color de fondo normal del botón.
-        hover_color (pygame.Color): El color de fondo cuando el ratón está encima.
-        selected_border_color (pygame.Color): El color del borde cuando el botón está seleccionado.
-        current_color (pygame.Color): El color de fondo actual (cambia con hover).
-        text_surf (pygame.Surface): La superficie pre-renderizada del texto.
-        text_rect (pygame.Rect): El rectángulo de la superficie del texto, centrado.
-        is_hovered (bool): True si el ratón está actualmente sobre el botón.
-        is_selected (bool): True si el botón está actualmente marcado como seleccionado.
+        rect: Rectangle defining the button's position and size.
+        text: Text displayed on the button.
+        identifier: Unique identifier for the button (e.g., 'dda_line').
+        font: Font used to render the text.
+        base_color: Normal background color of the button.
+        hover_color: Background color when mouse is over the button.
+        selected_border_color: Border color when button is selected.
+        current_color: Current background color (changes with hover).
+        text_surf: Pre-rendered text surface.
+        text_rect: Rectangle of the text surface, centered.
+        is_hovered: True if mouse is currently over the button.
+        is_selected: True if button is currently marked as selected.
     """
     def __init__(self, x: int, y: int, width: int, height: int,
                  text: str, identifier: str,
                  font: pygame.font.Font,
                  base_color: pygame.Color,
-                 hover_color: Optional[pygame.Color] = None, # Usar Optional
+                 hover_color: Optional[pygame.Color] = None,
                  selected_border_color: pygame.Color = pygame.Color("gold")):
         """
-        Inicializa un nuevo botón.
+        Initialize a new button.
 
         Args:
-            x (int): Coordenada X de la esquina superior izquierda.
-            y (int): Coordenada Y de la esquina superior izquierda.
-            width (int): Ancho del botón.
-            height (int): Alto del botón.
-            text (str): Texto a mostrar en el botón.
-            identifier (str): Identificador único para este botón.
-            font (pygame.font.Font): Fuente para el texto.
-            base_color (pygame.Color): Color de fondo base.
-            hover_color (Optional[pygame.Color], optional): Color de fondo al pasar el ratón.
-                                                            Si es None, usa base_color. Defaults to None.
-            selected_border_color (pygame.Color, optional): Color del borde cuando está seleccionado.
-                                                            Defaults to pygame.Color("gold").
+            x: X coordinate of the top-left corner.
+            y: Y coordinate of the top-left corner.
+            width: Width of the button.
+            height: Height of the button.
+            text: Text to display on the button.
+            identifier: Unique identifier for this button.
+            font: Font for the text.
+            base_color: Base background color.
+            hover_color: Background color when mouse hovers over.
+                        If None, uses base_color. Defaults to None.
+            selected_border_color: Border color when selected.
+                                  Defaults to pygame.Color("gold").
         """
         self.rect: pygame.Rect = pygame.Rect(x, y, width, height)
         self.text: str = text
@@ -59,7 +58,6 @@ class Button:
         self.selected_border_color: pygame.Color = selected_border_color
         self.current_color: pygame.Color = base_color
 
-        # Pre-renderizar texto para eficiencia
         self.text_surf: pygame.Surface = self.font.render(self.text, True, pygame.Color("black"))
         self.text_rect: pygame.Rect = self.text_surf.get_rect(center=self.rect.center)
 
@@ -68,56 +66,43 @@ class Button:
 
     def check_hover(self, mouse_pos: Tuple[int, int]) -> None:
         """
-        Verifica si el ratón está sobre el botón y actualiza el estado y color.
+        Check if mouse is over the button and update state and color.
 
         Args:
-            mouse_pos (Tuple[int, int]): La posición actual del cursor del ratón (x, y).
-
-        Returns:
-            None
+            mouse_pos: Current mouse cursor position (x, y).
         """
         self.is_hovered = self.rect.collidepoint(mouse_pos)
-        # El color de fondo cambia solo con hover, no con selección
         self.current_color = self.hover_color if self.is_hovered else self.base_color
 
     def draw(self, surface: pygame.Surface) -> None:
         """
-        Dibuja el botón en la superficie especificada.
+        Draw the button on the specified surface.
 
-        Incluye el fondo, borde normal, borde de selección (si aplica) y texto.
+        Includes background, normal border, selection border (if applicable) and text.
 
         Args:
-            surface (pygame.Surface): La superficie de Pygame donde dibujar el botón.
-
-        Returns:
-            None
+            surface: Pygame surface where to draw the button.
         """
-        # Dibujar fondo del botón
         pygame.draw.rect(surface, self.current_color, self.rect, border_radius=5)
 
-        # Dibujar borde normal
         pygame.draw.rect(surface, pygame.Color("darkgray"), self.rect, 1, border_radius=5)
 
-        # Dibujar borde de selección si está activo
         if self.is_selected:
-            pygame.draw.rect(surface, self.selected_border_color, self.rect, 3, border_radius=5) # Borde más grueso
+            pygame.draw.rect(surface, self.selected_border_color, self.rect, 3, border_radius=5)
 
-        # Dibujar texto
         if self.text:
             surface.blit(self.text_surf, self.text_rect)
 
     def handle_click(self) -> Optional[str]:
          """
-         Procesa un evento de clic. Retorna el identificador del botón si fue clickeado.
+         Process a click event. Returns the button identifier if it was clicked.
 
-         Solo retorna el identificador si el cursor estaba sobre el botón (`is_hovered` es True)
-         en el momento de llamar a esta función (generalmente después de un evento MOUSEBUTTONDOWN).
+         Only returns the identifier if the cursor was over the button (`is_hovered` is True)
+         at the time of calling this function (usually after a MOUSEBUTTONDOWN event).
 
          Returns:
-             Optional[str]: El identificador del botón si fue clickeado mientras estaba hover,
-                            o None en caso contrario.
+             Button identifier if it was clicked while hovered, None otherwise.
          """
          if self.is_hovered:
-             # La acción específica (como imprimir o cambiar estado) se maneja fuera de Button.
              return self.identifier
          return None

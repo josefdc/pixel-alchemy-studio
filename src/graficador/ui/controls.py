@@ -1,21 +1,51 @@
-# src/graficador/ui/controls.py
+"""
+Controls module for the application interface.
+
+Defines the Controls class that represents the control panel where users can select
+tools, colors, and other application options.
+"""
+
 import pygame
 from .. import config
-from .button import Button # Asumiendo que creaste button.py
+from .button import Button
 
 class Controls:
-    """Representa el panel de control de la aplicación."""
-
+    """
+    Application control panel interface.
+    
+    Manages tool buttons, color selection buttons, and handles user interactions
+    within the control panel area.
+    
+    Attributes:
+        rect (pygame.Rect): Rectangle defining panel position and size.
+        surface (pygame.Surface): Pygame surface where the panel is drawn.
+        bg_color (pygame.Color): Panel background color.
+        font (pygame.font.Font): Normal font for buttons.
+        font_small (pygame.font.Font): Small font for color buttons.
+        buttons (list[Button]): List of tool buttons.
+        color_buttons (list[Button]): List of color selection buttons.
+    """
 
     def __init__(self, x: int, y: int, width: int, height: int, 
                  bg_color: pygame.Color, 
-                 font_normal: pygame.font.Font,  # Nuevo
-                 font_small: pygame.font.Font):  # Nuevo
+                 font_normal: pygame.font.Font,
+                 font_small: pygame.font.Font):
+        """
+        Initialize the control panel.
+
+        Args:
+            x: X position of panel top-left corner.
+            y: Y position of panel top-left corner.
+            width: Panel width in pixels.
+            height: Panel height in pixels.
+            bg_color: Panel background color.
+            font_normal: Normal font for tool buttons.
+            font_small: Small font for color buttons.
+        """
         self.rect = pygame.Rect(x, y, width, height)
         self.surface = pygame.Surface((width, height))
         self.bg_color = bg_color
         
-        # --- Usar fuentes pasadas ---
         self.font = font_normal
         self.font_small = font_small
 
@@ -24,10 +54,10 @@ class Controls:
         self.color_buttons: list[Button] = []
         
         self._create_tool_buttons()
-        self._create_color_buttons()  # Asumo que color_buttons_start_y se define en _create_tool_buttons
-        print(f"Panel de Control inicializado en {self.rect} con color {bg_color}")
+        self._create_color_buttons()
 
     def _create_tool_buttons(self):
+        """Create and configure tool selection buttons."""
         button_width = self.rect.width - 40
         button_height = 30
         button_x = 20
@@ -35,20 +65,18 @@ class Controls:
         spacing = 10
         
         tool_list = [
-            ("pixel", "Píxel (P)"), 
-            ("dda_line", "Línea DDA (L)"),
-            ("bresenham_line", "Línea Bresenham (B)"), 
-            ("bresenham_circle", "Círculo (O)"), 
-            ("ellipse", "Elipse (E)"), 
-            ("bezier_curve", "Curva Bézier (Z)"),
-            ("triangle", "Triángulo (T)"), 
-            ("rectangle", "Rectángulo (R)"),
-            ("polygon", "Polígono (Y)"), 
-            ("clear", "Limpiar (C)"),
-            ("gemini_generate", config.GEMINI_BUTTON_TEXT),  # Botón para IA
-            # --- NUEVO BOTÓN PARA VEO ---
-            ("veo_generate", config.VEO_BUTTON_TEXT)    # Botón para IA (Veo)
-            # --- FIN DEL NUEVO BOTÓN ---
+            ("pixel", "Pixel (P)"), 
+            ("dda_line", "DDA Line (L)"),
+            ("bresenham_line", "Bresenham Line (B)"), 
+            ("bresenham_circle", "Circle (O)"), 
+            ("ellipse", "Ellipse (E)"), 
+            ("bezier_curve", "Bezier Curve (Z)"),
+            ("triangle", "Triangle (T)"), 
+            ("rectangle", "Rectangle (R)"),
+            ("polygon", "Polygon (Y)"), 
+            ("clear", "Clear (C)"),
+            ("gemini_generate", config.GEMINI_BUTTON_TEXT),
+            ("veo_generate", config.VEO_BUTTON_TEXT)
         ]
         
         for identifier, text in tool_list:
@@ -56,16 +84,17 @@ class Controls:
                 x=button_x, y=current_y,
                 width=button_width, height=button_height,
                 text=text, identifier=identifier,
-                font=self.font,  # Usar la fuente normal para botones de herramienta
+                font=self.font,
                 base_color=pygame.Color("lightblue"), 
                 hover_color=pygame.Color("dodgerblue")
             )
             self.buttons.append(button)
             current_y += button_height + spacing
         
-        self.color_buttons_start_y = current_y + spacing  # Definir para _create_color_buttons
+        self.color_buttons_start_y = current_y + spacing
 
     def _create_color_buttons(self):
+        """Create and configure color selection buttons."""
         button_size = 25
         button_x = 20
         current_y = self.color_buttons_start_y
@@ -73,12 +102,13 @@ class Controls:
         max_width = self.rect.width - 2 * button_x
         num_cols = max(1, max_width // (button_size + spacing))
         col_count = 0
+        
         for name, color_value in config.AVAILABLE_COLORS.items():
             button = Button(
                 x=button_x + col_count * (button_size + spacing),
                 y=current_y,
                 width=button_size, height=button_size,
-                text="", # Sin texto
+                text="",
                 identifier=name,
                 font=self.font_small,
                 base_color=color_value,
@@ -91,75 +121,72 @@ class Controls:
                 current_y += button_size + spacing
 
     def _draw_background(self):
-        """Dibuja el fondo y borde del panel."""
+        """Draw panel background and border."""
         self.surface.fill(self.bg_color)
-        # Dibujar un borde izquierdo para separarlo visualmente del lienzo
         pygame.draw.line(self.surface, config.DARK_GRAY, (0, 0), (0, self.rect.height), 2)
 
-    # --- NUEVO: Método para actualizar estado hover ---
     def update(self, mouse_pos_relative: tuple[int, int] | None):
-        """Actualiza el estado de los botones (hover)."""
-        all_buttons = self.buttons + self.color_buttons # Combinar listas
-        # Si el ratón está sobre el panel, calcula el hover de los botones
-        if mouse_pos_relative:
-            for button in all_buttons: # Iterar sobre todos
-                button.check_hover(mouse_pos_relative)
-        else: # Si el ratón no está sobre el panel, ningún botón está hover
-             for button in all_buttons: # Iterar sobre todos
-                 if button.is_hovered: # Solo actualiza si estaba hover antes
-                    button.is_hovered = False
-    # -------------------------------------------------
-
-    # --- MODIFICADO: Método para manejar clics ---
-    def handle_click(self, mouse_pos_relative: tuple[int, int]) -> tuple[str, str | pygame.Color] | None:
-        """Maneja un clic dentro del panel.
-
-        Retorna:
-            - ('tool', identifier) si se hizo clic en un botón de herramienta.
-            - ('color', color_value) si se hizo clic en un botón de color.
-            - None si no se hizo clic en ningún botón.
         """
-        # Primero, verificar botones de herramientas
+        Update button states based on mouse position.
+        
+        Args:
+            mouse_pos_relative: Mouse position relative to panel, or None if outside.
+        """
+        all_buttons = self.buttons + self.color_buttons
+        
+        if mouse_pos_relative:
+            for button in all_buttons:
+                button.check_hover(mouse_pos_relative)
+        else:
+            for button in all_buttons:
+                if button.is_hovered:
+                    button.is_hovered = False
+
+    def handle_click(self, mouse_pos_relative: tuple[int, int]) -> tuple[str, str | pygame.Color] | None:
+        """
+        Handle mouse clicks within the panel.
+
+        Args:
+            mouse_pos_relative: Mouse position relative to panel.
+
+        Returns:
+            Tuple containing ('tool', identifier) for tool buttons,
+            ('color', color_value) for color buttons, or None if no button clicked.
+        """
         for button in self.buttons:
-            clicked_id = button.handle_click() # handle_click de Button retorna identifier o None
+            clicked_id = button.handle_click()
             if clicked_id:
                 return ("tool", clicked_id)
 
-        # Si no se hizo clic en herramienta, verificar botones de color
         for button in self.color_buttons:
-            clicked_name = button.handle_click() # handle_click de Button retorna identifier (nombre del color) o None
+            clicked_name = button.handle_click()
             if clicked_name:
-                # Buscar el valor de color correspondiente al nombre (identificador)
                 color_value = config.AVAILABLE_COLORS.get(clicked_name)
                 if color_value:
                     return ("color", color_value)
                 else:
-                    # Esto no debería pasar si los identificadores son correctos
-                    print(f"Advertencia: Color '{clicked_name}' no encontrado en config.AVAILABLE_COLORS")
+                    print(f"Warning: Color '{clicked_name}' not found in config.AVAILABLE_COLORS")
 
-        # Si no se hizo clic en ningún botón
         return None
-    # ---------------------------------------
 
-    def render(self, target_surface: pygame.Surface, current_tool: str, current_color: pygame.Color): # NUEVOS PARÁMETROS
-        """Dibuja (blit) la superficie de este panel sobre la superficie destino."""
-        # Redibuja el fondo por si acaso (importante si los botones cambian de color)
+    def render(self, target_surface: pygame.Surface, current_tool: str, current_color: pygame.Color):
+        """
+        Render the control panel to target surface.
+        
+        Args:
+            target_surface: Surface where panel will be rendered.
+            current_tool: Currently selected tool identifier.
+            current_color: Currently selected color.
+        """
         self._draw_background()
 
-        # --- NUEVO: Actualizar estado de selección antes de dibujar ---
         for btn in self.buttons:
             btn.is_selected = (btn.identifier == current_tool)
         for btn in self.color_buttons:
-            # Comparamos por valor de color base, no por objeto pygame.Color directamente
-            # ya que pueden ser instancias diferentes aunque representen el mismo color.
             btn.is_selected = (btn.base_color == current_color)
-        # -----------------------------------------------------------
 
-        # Dibuja cada botón sobre la superficie del panel
-        all_buttons = self.buttons + self.color_buttons # Combinar listas
-        for button in all_buttons: # Iterar sobre todos
+        all_buttons = self.buttons + self.color_buttons
+        for button in all_buttons:
             button.draw(self.surface)
-        # Dibuja el panel completo (con botones) en la pantalla principal
+        
         target_surface.blit(self.surface, self.rect.topleft)
-
-    # Aquí añadiremos métodos para dibujar botones, texto, manejar clics, etc.
