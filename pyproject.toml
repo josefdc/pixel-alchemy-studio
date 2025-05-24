@@ -25,6 +25,7 @@ classifiers = [ # Ayuda a PyPI a categorizar el paquete si lo publicas
 ]
 
 dependencies = [
+    "pillow>=11.2.1",
     "pygame>=2.6.1", # Correcto
 ]
 

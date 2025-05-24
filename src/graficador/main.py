@@ -1,34 +1,45 @@
-"""
-Punto de entrada principal para la aplicación Graficador Geométrico.
-
-Este script inicializa y ejecuta la clase principal de la aplicación (`Application`).
-También asegura que Pygame se cierre correctamente al finalizar o en caso de error.
-"""
+# src/graficador/main.py
 import pygame
 from .app import Application
+from dotenv import load_dotenv
+import os
+import traceback
 
 def main() -> None:
     """
-    Inicializa y ejecuta la aplicación principal.
-
-    Crea una instancia de la clase `Application` y llama a su método `run()`.
-    Incluye manejo de excepciones básico y asegura la limpieza de Pygame
-    en un bloque `finally`.
+    Initialize and run the main application.
+    Loads environment variables from .env file at startup.
     """
+    try:
+        # Calculate project root path
+        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        dotenv_path = os.path.join(project_root, '.env')
+
+        print(f"Looking for .env file in project root: {dotenv_path}")
+
+        if os.path.exists(dotenv_path):
+            loaded = load_dotenv(dotenv_path=dotenv_path, override=True) 
+            if loaded:
+                print(f".env file loaded from project root: {dotenv_path}")
+            else:
+                 print(f"WARNING: Found {dotenv_path}, but there was a problem loading it (empty, permissions?).")
+        else:
+            print(f"WARNING: .env file NOT found in project root ({dotenv_path}). "
+                  "Make sure it exists and contains the GOOGLE_API_KEY variable.")
+
+    except Exception as e:
+        print(f"ERROR when trying to load .env file: {e}")
+
     try:
         app = Application()
         app.run()
     except Exception as e:
-        print(f"ERROR: Ocurrió un error inesperado en la aplicación: {e}")
-        # Considerar logging más robusto para producción
+        print(f"ERROR: An unexpected error occurred in the application: {e}")
+        traceback.print_exc()
     finally:
-        # Asegura que Pygame se cierre correctamente al salir del bucle principal
-        # o si ocurre una excepción.
         if pygame.get_init():
-            print("Cerrando Pygame...") # Mensaje de cierre
+            print("Closing Pygame...")
             pygame.quit()
 
-# Llama directamente a la función main para iniciar la aplicación.
-# Esto es adecuado para cuando el script se ejecuta como módulo principal
-# (por ejemplo, usando `python -m graficador`).
-main()
+if __name__ == '__main__':
+    main()

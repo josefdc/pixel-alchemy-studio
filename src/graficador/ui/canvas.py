@@ -1,126 +1,94 @@
 """
-Módulo de la interfaz de usuario para el lienzo de dibujo.
+Canvas module for the drawing interface.
 
-Define la clase `Canvas`, que representa el área principal donde los usuarios
-dibujan las formas geométricas. Gestiona su propia superficie, color de fondo,
-y proporciona métodos para dibujar píxeles y convertir coordenadas.
+Defines the Canvas class that represents the main area where users draw geometric shapes.
+Manages its own surface, background color, and provides methods for drawing pixels and
+coordinate conversion.
 """
 
 import pygame
-from typing import Tuple # Importar Tuple
+from typing import Tuple
 from ..geometry.point import Point
-# Nota: 'config' se importa pero no se usa directamente en este fragmento.
-# Se mantiene por si es usado en otras partes del archivo original o proyecto.
 from .. import config
 
 class Canvas:
     """
-    Representa el área de dibujo (lienzo) interactiva de la aplicación.
+    Interactive drawing area for the application.
 
-    Gestiona una superficie de Pygame separada donde se realizan todas las
-    operaciones de dibujo. Proporciona métodos para limpiar el lienzo,
-    dibujar píxeles individuales en coordenadas relativas, y convertir
-    coordenadas entre el sistema relativo del lienzo y el absoluto de la pantalla.
+    Manages a separate Pygame surface where all drawing operations are performed.
+    Provides methods to clear the canvas, draw individual pixels, and convert coordinates
+    between the canvas relative system and screen absolute coordinates.
 
     Attributes:
-        rect (pygame.Rect): El rectángulo que define la posición y tamaño del lienzo
-                            dentro de la ventana principal.
-        surface (pygame.Surface): La superficie de Pygame donde se dibuja.
-        bg_color (pygame.Color): El color de fondo actual del lienzo.
+        rect (pygame.Rect): Rectangle defining canvas position and size within main window.
+        surface (pygame.Surface): Pygame surface where drawing occurs.
+        bg_color (pygame.Color): Current canvas background color.
     """
 
     def __init__(self, x: int, y: int, width: int, height: int, bg_color: pygame.Color):
         """
-        Inicializa el lienzo.
+        Initialize the canvas.
 
         Args:
-            x (int): Posición X de la esquina superior izquierda del lienzo en la pantalla.
-            y (int): Posición Y de la esquina superior izquierda del lienzo en la pantalla.
-            width (int): Ancho del lienzo en píxeles.
-            height (int): Alto del lienzo en píxeles.
-            bg_color (pygame.Color): Color de fondo inicial del lienzo.
+            x: X position of canvas top-left corner on screen.
+            y: Y position of canvas top-left corner on screen.
+            width: Canvas width in pixels.
+            height: Canvas height in pixels.
+            bg_color: Initial canvas background color.
         """
         self.rect: pygame.Rect = pygame.Rect(x, y, width, height)
         self.surface: pygame.Surface = pygame.Surface((width, height))
         self.bg_color: pygame.Color = bg_color
-        self.clear() # Establecer el color de fondo inicial
-
-        # Nota: La siguiente línea es para depuración y puede eliminarse en producción.
-        print(f"Canvas inicializado en {self.rect} con color {bg_color}") # Debug
+        self.clear()
 
     def clear(self) -> None:
-        """
-        Limpia el lienzo llenándolo completamente con su color de fondo.
-
-        Returns:
-            None
-        """
+        """Clear the canvas by filling it with the background color."""
         self.surface.fill(self.bg_color)
-        # Posible mejora futura: dibujar un borde alrededor del lienzo.
-        # pygame.draw.rect(self.surface, config.DARK_GRAY, self.surface.get_rect(), 1)
 
     def draw_pixel(self, x: int, y: int, color: pygame.Color) -> None:
         """
-        Dibuja un píxel en el lienzo en coordenadas relativas.
-
-        Las coordenadas (x, y) deben ser relativas a la esquina superior
-        izquierda del lienzo (0, 0). El método verifica que las coordenadas
-        estén dentro de los límites del lienzo antes de dibujar.
+        Draw a pixel on the canvas at relative coordinates.
 
         Args:
-            x (int): Coordenada X relativa al lienzo.
-            y (int): Coordenada Y relativa al lienzo.
-            color (pygame.Color): Color del píxel a dibujar.
-
-        Returns:
-            None
+            x: X coordinate relative to canvas.
+            y: Y coordinate relative to canvas.
+            color: Pixel color to draw.
         """
         if 0 <= x < self.rect.width and 0 <= y < self.rect.height:
             try:
-                # set_at es la forma directa de Pygame para modificar un píxel
                 self.surface.set_at((x, y), color)
             except IndexError:
-                # Aunque la comprobación de límites debería prevenir esto,
-                # set_at puede lanzar IndexError bajo ciertas circunstancias.
-                print(f"Advertencia: Intento de dibujar píxel fuera de los límites del lienzo en ({x}, {y}) vía set_at")
-        # else: # No es necesario advertir si está fuera, la comprobación ya lo evita.
-            # print(f"Advertencia: Coordenadas ({x}, {y}) fuera del lienzo.")
+                print(f"Warning: Attempted to draw pixel outside canvas bounds at ({x}, {y})")
 
     def render(self, target_surface: pygame.Surface) -> None:
         """
-        Dibuja (blit) la superficie de este lienzo sobre una superficie destino.
+        Render this canvas surface onto a target surface.
 
         Args:
-            target_surface (pygame.Surface): La superficie donde se renderizará
-                                             el contenido del lienzo (e.g., la pantalla principal).
-
-        Returns:
-            None
+            target_surface: Surface where canvas content will be rendered.
         """
         target_surface.blit(self.surface, self.rect.topleft)
 
     def to_absolute_pos(self, point: Point) -> Tuple[int, int]:
         """
-        Convierte un punto con coordenadas relativas al lienzo a coordenadas absolutas de la pantalla.
+        Convert canvas-relative coordinates to absolute screen coordinates.
 
         Args:
-            point (Point): Un punto con coordenadas (x, y) relativas al lienzo.
+            point: Point with coordinates relative to canvas.
 
         Returns:
-            Tuple[int, int]: Una tupla (x, y) con las coordenadas absolutas correspondientes
-                             en la ventana principal.
+            Tuple with absolute coordinates in the main window.
         """
         return (point.x + self.rect.x, point.y + self.rect.y)
 
     def to_relative_pos(self, point: Point) -> Point:
         """
-        Convierte un punto con coordenadas absolutas de la pantalla a coordenadas relativas del lienzo.
+        Convert absolute screen coordinates to canvas-relative coordinates.
 
         Args:
-            point (Point): Un punto con coordenadas (x, y) absolutas en la pantalla.
+            point: Point with absolute screen coordinates.
 
         Returns:
-            Point: Un nuevo objeto Point con las coordenadas (x, y) relativas a la esquina
-                   superior izquierda del lienzo.
+            New Point with coordinates relative to canvas top-left corner.
         """
         return Point(point.x - self.rect.x, point.y - self.rect.y)
