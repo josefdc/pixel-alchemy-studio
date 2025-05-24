@@ -2,6 +2,13 @@
 
 PixelAlchemy Studio is an interactive 2D drawing application built with Python and Pygame, supercharged with Generative AI capabilities from Google's Gemini and Veo APIs. Sketch your ideas, refine them with AI-powered image generation, and bring them to life with video animation!
 
+
+
+https://github.com/user-attachments/assets/42a71462-1e61-44c0-999d-5817a8870633
+
+
+
+
 ## 🌟 Features
 
 ### Intuitive Drawing Tools:
