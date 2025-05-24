@@ -76,6 +76,37 @@ GEMINI_STATUS_ERROR_API_KEY: str = "Error: API Key de Gemini no configurada."
 GEMINI_STATUS_ERROR_LIB: str = "Error: Librerías de IA no encontradas."
 GEMINI_STATUS_ERROR_GENERAL: str = "Error de IA. Intenta de nuevo."
 
+# --- NUEVA CONFIGURACIÓN PARA VEO ---
+VEO_BUTTON_TEXT: str = "Video con Veo (V)"  # Texto para el botón
+VEO_MODEL_NAME: str = "veo-2.0-generate-001"  # Modelo Veo
+VEO_SIMULATED_POLL_INTERVAL_MS: int = 3000  # Milisegundos para simular espera de Veo
+VEO_STATUS_GENERATING: str = "Generando video con Veo... (simulado)"
+VEO_STATUS_SUCCESS: str = "¡Video generado con Veo con éxito! (simulado)"
+VEO_STATUS_ERROR_API: str = "Error: API de Veo no disponible o problema."
+# --- FIN DE NUEVA CONFIGURACIÓN ---
+
+# --- NUEVA CONFIGURACIÓN PARA VEO (AMPLIADA) ---
+VEO_BUTTON_TEXT: str = "Video con Veo (V)"  # Texto para el botón (ya lo tienes)
+VEO_MODEL_NAME: str = "veo-2.0-generate-001" # Modelo Veo (ya lo tienes)
+
+# Tiempos para el polling de Veo (en milisegundos)
+VEO_INITIAL_POLL_DELAY_MS: int = 10000  # 10 segundos antes de la primera verificación
+VEO_POLLING_INTERVAL_MS: int = 15000    # Verificar cada 15 segundos después
+
+# Mensajes de estado para Veo
+VEO_STATUS_STARTING: str = "Iniciando generación de video con Veo..."
+VEO_STATUS_GENERATING: str = "Veo está generando video (puede tardar minutos)..."
+VEO_STATUS_POLLING: str = "Consultando estado de generación de Veo..."
+VEO_STATUS_SUCCESS: str = "¡Video(s) de Veo guardado(s) en el directorio del proyecto!"
+VEO_STATUS_ERROR_API: str = "Error con la API de Veo. Verifica la configuración o la API Key."
+VEO_STATUS_ERROR_NO_PROMPT_OR_IMAGE: str = "Veo necesita un prompt o un dibujo en el lienzo."
+VEO_STATUS_PROCESSING_ANOTHER_OP: str = "IA ya está procesando una solicitud. Espera por favor."
+
+# Parámetros por defecto para la generación de Veo (puedes ajustarlos)
+VEO_DEFAULT_ASPECT_RATIO: str = "16:9" # "16:9" o "9:16"
+VEO_DEFAULT_DURATION_SECONDS: int = 5   # entre 5 y 8
+VEO_DEFAULT_PERSON_GENERATION: str = "allow_adult" # "dont_allow" o "allow_adult"
+
 # Colores adicionales para la UI de IA
 PROMPT_INPUT_BG_COLOR: pygame.Color = pygame.Color("whitesmoke")
 PROMPT_INPUT_TEXT_COLOR: pygame.Color = BLACK

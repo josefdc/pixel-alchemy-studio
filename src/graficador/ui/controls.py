@@ -45,7 +45,10 @@ class Controls:
             ("rectangle", "Rectángulo (R)"),
             ("polygon", "Polígono (Y)"), 
             ("clear", "Limpiar (C)"),
-            ("gemini_generate", config.GEMINI_BUTTON_TEXT)  # Botón para IA
+            ("gemini_generate", config.GEMINI_BUTTON_TEXT),  # Botón para IA
+            # --- NUEVO BOTÓN PARA VEO ---
+            ("veo_generate", config.VEO_BUTTON_TEXT)    # Botón para IA (Veo)
+            # --- FIN DEL NUEVO BOTÓN ---
         ]
         
         for identifier, text in tool_list:
