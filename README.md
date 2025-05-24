@@ -192,6 +192,6 @@ This project was inspired by the creative possibilities demonstrated in other AI
 
 ## 📄 License
 
-This project is licensed under the Apache License 2.0. See the LICENSE file for more details (you'll need to add one!).
+This project is licensed under the Apache License 2.0. See the LICENSE file for more details.
 
 **Happy sketching and alchemizing with PixelAlchemy Studio!**
