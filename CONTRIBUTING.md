@@ -10,9 +10,9 @@ There are many ways to contribute, from writing tutorials or blog posts, improvi
 
 ### Reporting Bugs
 
-If you find a bug, please ensure the bug was not already reported by searching on GitHub under [Issues](https://github.com/your-username/pixel-alchemy-studio/issues). <!-- TODO: Replace with actual link -->
+If you find a bug, please ensure the bug was not already reported by searching on GitHub under [Issues](https://github.com/josefdc/pixel-alchemy-studio/issues). <!-- TODO: Replace with actual link -->
 
-If you're unable to find an open issue addressing the problem, [open a new one](https://github.com/your-username/pixel-alchemy-studio/issues/new). Be sure to include a **title and clear description**, as much relevant information as possible, and a **code sample or an executable test case** demonstrating the expected behavior that is not occurring.
+If you're unable to find an open issue addressing the problem, [open a new one](https://github.com/josefdc/pixel-alchemy-studio/issues/new). Be sure to include a **title and clear description**, as much relevant information as possible, and a **code sample or an executable test case** demonstrating the expected behavior that is not occurring.
 
 ### Suggesting Enhancements
 

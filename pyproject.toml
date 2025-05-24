@@ -1,42 +1,44 @@
 [project]
 name = "PixelAlchemy"
 version = "0.1.0"
-description = "PixelAlchemy Studio is an interactive 2D drawing application built with Python and Pygame, supercharged with Generative AI" # Descripción actualizada
+description = "PixelAlchemy Studio is an interactive 2D drawing application built with Python and Pygame, supercharged with Generative AI"
 authors = [
     { name = "Jose Duarte", email = "josepipe0909@gmail.com" },
 ]
 readme = "README.md"
-requires-python = ">=3.9" # Puedes usar >=3.11 si prefieres, pero >=3.9 es buena base
-license = { text = "MIT" } # O la licencia que prefieras
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" } 
 
-classifiers = [ # Ayuda a PyPI a categorizar el paquete si lo publicas
+classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License", # Changed to Apache
     "Operating System :: OS Independent",
     "Topic :: Scientific/Engineering :: Visualization",
     "Topic :: Education",
-    "Development Status :: 3 - Alpha", # Indica el estado del proyecto
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Education",
     "Intended Audience :: Developers",
 ]
 
 dependencies = [
     "pillow>=11.2.1",
-    "pygame>=2.6.1", # Correcto
+    "pygame>=2.6.1",
+    "google-genai>=1.10.0", # Added based on README
+    "python-dotenv>=1.0.0"  # Added based on README
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "ruff>=0.4.0",
-    # "mypy>=1.0.0", # Descomenta si decides usar mypy
+    # "mypy>=1.0.0", # Uncomment if you decide to use mypy
 ]
 
-# Descomenta si quieres poder instalar y luego ejecutar 'graficador' desde cualquier lugar
+# Uncomment if you want to be able to install and then run 'graficador' from anywhere
 # [project.scripts]
 # graficador = "graficador.main:main"
 
@@ -44,10 +46,9 @@ dev = [
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
-# --- Configuración de Herramientas ---
+# --- Tool Configuration ---
 [tool.ruff]
-line-length = 88 # Compatible con Black
-# Extend select beyond default E, F (Pyflakes, pycodestyle)
+line-length = 88
 select = [
     "E",  # pycodestyle errors
     "W",  # pycodestyle warnings
@@ -57,28 +58,19 @@ select = [
     "B",  # flake8-bugbear
     "C4", # flake8-comprehensions
     "SIM", # flake8-simplify
-    "TCH", # flake8-type-checking (si usas type hints)
-    "PTH", # flake8-use-pathlib (recomienda usar pathlib)
+    "TCH", # flake8-type-checking (if using type hints)
+    "PTH", # flake8-use-pathlib
 ]
-ignore = [] # Puedes añadir códigos de error específicos para ignorar aquí
-# exclude = [ ".venv", ... ] # Ruff excluye estos por defecto
+ignore = []
+# exclude = [ ".venv", ... ] # Ruff excludes these by default
 
-# Configuración específica para isort (ordenamiento de imports) dentro de Ruff
 [tool.ruff.lint.isort]
-known-first-party = ["graficador"] # Ayuda a isort a identificar tu propio código
+known-first-party = ["graficador"]
 
 [tool.ruff.format]
-quote-style = "double" # Usa comillas dobles ""
+quote-style = "double"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"] # ¡Importante! Le dice a pytest dónde encontrar tu código
-testpaths = ["tests"] # Directorio donde están las pruebas
-addopts = "-v -s --color=yes" # Opciones para pytest: verbose, muestra prints, con color
-
-# (Opcional) Configuración para mypy si lo usas
-# [tool.mypy]
-# python_version = "3.9" # O la versión que uses
-# warn_return_any = true
-# warn_unused_configs = true
-# packages = ["graficador"]
-# # strict = true # Puedes habilitar el modo estricto si quieres ser muy riguroso
+pythonpath = ["src"]
+testpaths = ["tests"]
+addopts = "-v -s --color=yes"
