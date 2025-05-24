@@ -119,6 +119,8 @@ class Application:
         self.current_prompt_text: str = ""
         self.generated_image_surface: Optional[pygame.Surface] = None
         self.gemini_status_message: str = config.GEMINI_STATUS_DEFAULT
+        self.is_exporting_image: bool = False
+        self.export_filename_text: str = ""
         self.is_veo_processing: bool = False
         self.veo_operation_name: Optional[str] = None
         self.current_veo_operation_object: Optional[any] = None
@@ -287,6 +289,8 @@ class Application:
         self._reset_drawing_states()
         self.is_typing_prompt = False
         self.current_prompt_text = ""
+        self.is_exporting_image = False
+        self.export_filename_text = ""
         
         self.current_veo_operation_object = None
         if self.is_veo_processing:
@@ -296,6 +300,8 @@ class Application:
 
         if self.gemini_client:
             self.gemini_status_message = config.GEMINI_STATUS_DEFAULT
+        elif self.is_exporting_image: # Keep status if exporting
+            pass
         else:
             if not GEMINI_AVAILABLE:
                 self.gemini_status_message = config.GEMINI_STATUS_ERROR_LIB
@@ -329,6 +335,47 @@ class Application:
             print(f"Error: {self.gemini_status_message}")
             return None
 
+    def _save_canvas_image(self, filename: str) -> None:
+        """Save the current canvas content to a file."""
+        exports_dir = "exports"
+        try:
+            os.makedirs(exports_dir, exist_ok=True)
+
+            name, ext = os.path.splitext(filename)
+            if not ext:
+                ext = ".png"  # Default to PNG
+                filename = name + ext
+            
+            ext = ext.lower()
+            filepath = os.path.join(exports_dir, filename)
+
+            print(f"Attempting to save image to: {filepath}")
+
+            if ext in (".jpeg", ".jpg"):
+                if not PILImage:
+                    self.gemini_status_message = "Error: Pillow library (PIL) is required for JPEG export."
+                    print(f"Error: {self.gemini_status_message}")
+                    return
+
+                pil_image = self._capture_canvas_as_pil_image()
+                if pil_image:
+                    rgb_pil_image = pil_image.convert('RGB')
+                    rgb_pil_image.save(filepath, "JPEG", quality=90)
+                    self.gemini_status_message = f"Image saved as {filepath}"
+                    print(f"Image successfully saved as {filepath}")
+                else:
+                    self.gemini_status_message = "Error: Could not capture canvas for JPEG saving."
+                    # _capture_canvas_as_pil_image already prints an error
+            else:  # Default to PNG
+                pygame.image.save(self.canvas.surface, filepath)
+                self.gemini_status_message = f"Image saved as {filepath}"
+                print(f"Image successfully saved as {filepath}")
+
+        except Exception as e:
+            self.gemini_status_message = f"Error saving image: {str(e)[:100]}" # Limit error length
+            print(f"ERROR: Failed to save image to {filepath}. Exception: {e}")
+            traceback.print_exc()
+
     def _handle_events(self) -> None:
         """
         Handle user input events (keyboard, mouse), including logic for
@@ -354,7 +401,56 @@ class Application:
             if self.is_veo_processing:
                 continue
 
-            if self.is_typing_prompt and event.type == pygame.KEYDOWN:
+            # Combined prompt/filename input handling
+            if (self.is_typing_prompt or self.is_exporting_image) and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_RETURN:
+                    if self.is_typing_prompt:
+                        self.is_typing_prompt = False
+                        prompt_final = self.current_prompt_text.strip()
+                        if not prompt_final:
+                            self.gemini_status_message = "Empty prompt. Try again."
+                            print("Attempt to generate with empty prompt.")
+                        elif not self.gemini_client:
+                            self.gemini_status_message = "Error: AI not initialized."
+                            print("Attempt to generate without AI client.")
+                        else:
+                            print(f"Prompt finalized: '{prompt_final}'. Starting image generation...")
+                            self.gemini_status_message = config.GEMINI_STATUS_LOADING
+                            pil_image = self._capture_canvas_as_pil_image()
+                            if pil_image:
+                               self._call_gemini_api(pil_image, prompt_final)
+                            else:
+                                self.gemini_status_message = "Error: Could not capture canvas for Gemini."
+                                print(self.gemini_status_message)
+                    elif self.is_exporting_image:
+                        filename = self.export_filename_text.strip()
+                        if not filename:
+                            self.gemini_status_message = "Filename cannot be empty. Please enter a filename."
+                            # self.is_exporting_image remains True for user to try again
+                            print("Export image: filename was empty.")
+                        else:
+                            self.is_exporting_image = False # Exit input mode
+                            self.export_filename_text = ""  # Clear input field text
+                            self._save_canvas_image(filename) # Call the new save method
+
+                elif event.key == pygame.K_BACKSPACE:
+                    if self.is_typing_prompt:
+                        self.current_prompt_text = self.current_prompt_text[:-1]
+                    elif self.is_exporting_image:
+                        self.export_filename_text = self.export_filename_text[:-1]
+                elif event.key == pygame.K_ESCAPE:
+                    print("Input cancelled by ESC.")
+                    self._reset_all_states() # Resets both typing and exporting states
+                else:
+                    if self.is_typing_prompt:
+                        if len(self.current_prompt_text) < 200:
+                            self.current_prompt_text += event.unicode
+                    elif self.is_exporting_image:
+                        if len(self.export_filename_text) < 200: # Max filename length
+                            self.export_filename_text += event.unicode
+                continue
+
+            if self.is_typing_prompt and event.type == pygame.KEYDOWN: # This block is now part of the combined one above
                 if event.key == pygame.K_RETURN:
                     self.is_typing_prompt = False
                     prompt_final = self.current_prompt_text.strip()
@@ -416,6 +512,17 @@ class Application:
                                     else:
                                         self.gemini_status_message = "Error: AI not available/configured."
                                     print(self.gemini_status_message)
+                                
+                                elif tool_id == "export_image":
+                                    if self.is_typing_prompt: # If coming from AI prompt
+                                        self.is_typing_prompt = False
+                                        self.current_prompt_text = ""
+                                    self.is_exporting_image = True
+                                    self.export_filename_text = ""
+                                    self.gemini_status_message = "Enter filename (e.g., image.png):"
+                                    self.current_tool = "export_image"
+                                    self._reset_drawing_states() # Reset points, etc.
+                                    print("Export image mode activated.")
 
                                 elif tool_id == "clear":
                                     self.canvas.clear()
@@ -430,14 +537,15 @@ class Application:
                                         print(self.gemini_status_message)
 
                                 elif self.current_tool != tool_id:
-                                    if self.is_typing_prompt:
-                                        self._reset_all_states()
+                                    if self.is_typing_prompt or self.is_exporting_image:
+                                        self._reset_all_states() # Full reset if switching from input modes
                                     self.current_tool = tool_id
                                     self._reset_drawing_states()
                                     print(f"Tool changed to: {tool_id}")
-                                else:
-                                    self._reset_drawing_states()
-                                    print(f"Tool {tool_id} points reset.")
+                                else: # Clicked on the same tool again
+                                    if not self.is_exporting_image: # Don't reset points if already in export mode and clicking export again
+                                        self._reset_drawing_states()
+                                        print(f"Tool {tool_id} points reset.")
 
                             elif click_type == "color":
                                 color_value = cast(pygame.Color, value)
@@ -582,10 +690,13 @@ class Application:
         self.controls.render(self.screen, self.current_tool, self.draw_color)
 
         status_area_rect = pygame.Rect(0, config.SCREEN_HEIGHT - 40, config.SCREEN_WIDTH, 40)
-        if self.is_typing_prompt:
+        if self.is_typing_prompt or self.is_exporting_image:
             cursor = "_" if (pygame.time.get_ticks() // 500) % 2 == 0 else ""
-            prompt_text_render = f"{config.PROMPT_ACTIVE_PREFIX}{self.current_prompt_text}{cursor}"
-            prompt_surf = self.ui_font_normal.render(prompt_text_render, True, config.PROMPT_INPUT_TEXT_COLOR, config.PROMPT_INPUT_BG_COLOR)
+            current_text_for_input = self.current_prompt_text if self.is_typing_prompt else self.export_filename_text
+            input_prefix = config.PROMPT_ACTIVE_PREFIX if self.is_typing_prompt else "Filename: "
+            
+            input_text_render = f"{input_prefix}{current_text_for_input}{cursor}"
+            prompt_surf = self.ui_font_normal.render(input_text_render, True, config.PROMPT_INPUT_TEXT_COLOR, config.PROMPT_INPUT_BG_COLOR)
             prompt_rect = prompt_surf.get_rect(centerx=self.screen.get_rect().centerx, bottom=config.SCREEN_HEIGHT - 10)
             prompt_rect.left = max(10, prompt_rect.left)
             prompt_rect.right = min(config.SCREEN_WIDTH - 10, prompt_rect.right)
@@ -603,7 +714,13 @@ class Application:
             status_rect.right = min(config.SCREEN_WIDTH - 10, status_rect.right)
             
             bg_rect_status = status_rect.inflate(10, 6)
-            bg_rect_status.width = min(bg_rect_status.width, config.SCREEN_WIDTH - 20)
+            # Ensure status message bg does not overlap with potential export filename input if too wide
+            max_status_width = config.SCREEN_WIDTH - 20
+            if self.is_exporting_image: # Potentially show filename input and status
+                 # This logic might need adjustment if export filename input is also shown here
+                pass # For now, allow overlap or assume export filename is primary if active
+
+            bg_rect_status.width = min(bg_rect_status.width, max_status_width)
             bg_rect_status.centerx = self.screen.get_rect().centerx
             pygame.draw.rect(self.screen, config.LIGHT_GRAY, bg_rect_status, border_radius=3)
             self.screen.blit(status_surf, status_rect)
@@ -611,7 +728,7 @@ class Application:
         mouse_pos_abs = pygame.mouse.get_pos()
         mouse_on_canvas = self.canvas.rect.collidepoint(mouse_pos_abs)
 
-        if not self.is_typing_prompt:
+        if not self.is_typing_prompt and not self.is_exporting_image: # Don't draw tool previews if typing prompt or filename
             for i, p in enumerate(self.bezier_points):
                 p_abs = self.canvas.to_absolute_pos(p)
                 pygame.draw.circle(self.screen, config.RED, p_abs, 4)

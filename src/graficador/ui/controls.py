@@ -74,6 +74,7 @@ class Controls:
             ("triangle", "Triangle (T)"), 
             ("rectangle", "Rectangle (R)"),
             ("polygon", "Polygon (Y)"), 
+            ("export_image", "Export Image (S)"),
             ("clear", "Clear (C)"),
             ("gemini_generate", config.GEMINI_BUTTON_TEXT),
             ("veo_generate", config.VEO_BUTTON_TEXT)
